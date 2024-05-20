@@ -1942,6 +1942,7 @@ end
 
 function motif.setBaseOptionInfo()
 	motif.option_info.menu_itemname_menugame = "Game Settings"
+	motif.option_info.menu_itemname_menugame_language = "Language"
 	motif.option_info.menu_itemname_menugame_difficulty = "Difficulty Level"
 	motif.option_info.menu_itemname_menugame_roundtime = "Time Limit"
 	motif.option_info.menu_itemname_menugame_lifemul = "Life"
@@ -2066,6 +2067,7 @@ function motif.setBaseOptionInfo()
 	end
 	main.t_sort.option_info.menu = {
 		"menugame",
+		"menugame_language",
 		"menugame_difficulty",
 		"menugame_roundtime",
 		"menugame_lifemul",
