@@ -2431,7 +2431,6 @@ func (c *Char) load(def string) error {
 	gi.remapPreset = make(map[string]RemapPreset)
 
 	data, size, velocity, movement, quotes, lanQuotes, constants := true, true, true, true, true, true, true
-	testLanguage := "es"
 
 	if len(cns) > 0 {
 		if err := LoadFile(&cns, []string{def, "", sys.motifDir, "data/"}, func(filename string) error {
@@ -2629,7 +2628,7 @@ func (c *Char) load(def string) error {
 							}
 						}
 					}
-				case fmt.Sprintf("%v.quotes", testLanguage) :
+				case fmt.Sprintf("%v.quotes", sys.language) :
 					if lanQuotes {
 						quotes = false
 						lanQuotes = false
