@@ -93,6 +93,12 @@ local motif =
 		hiscore_bgm_loopstart = 0, --Ikemen feature
 		hiscore_bgm_loopend = 0, --Ikemen feature
 	},
+	languages =
+	{
+		languages = {"en", "ja"},
+		en = "English",
+		ja = "Japanese",
+	},
 	title_info =
 	{
 		fadein_time = 10,
