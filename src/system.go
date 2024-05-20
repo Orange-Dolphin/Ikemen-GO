@@ -2459,7 +2459,7 @@ func (s *Select) addChar(def string) {
 		return
 	}
 	sc.def = def
-	lines, i, info, files, keymap, arcade := SplitAndTrim(str, "\n"), 0, true, true, true, true
+	lines, i, info, lanInfo, files, lanFiles, keymap, arcade := SplitAndTrim(str, "\n"), 0, true, true, true, true, true, true
 	var cns, sprite, anim, movelist string
 	var fnt [10][2]string
 	for i < len(lines) {
@@ -2482,12 +2482,50 @@ func (s *Select) addChar(def string) {
 					sc.portrait_scale = 320 / float32(sc.localcoord)
 				}
 			}
+		case fmt.Sprintf("%v.info", sys.language) :
+			if lanInfo {
+				lanInfo = false
+				var ok bool
+				if _, ok, _ = is.getText("displayname"); ok {
+					sc.name, _, _ = is.getText("displayname")
+				}
+				
+				if _, ok, _ = is.getText("lifebarname"); ok {
+					sc.lifebarname, _, _ = is.getText("lifebarname")
+				}
+				
+				if _, ok, _ = is.getText("author"); ok {
+					sc.author, _, _ = is.getText("author")
+				}
+			}
 		case "files":
 			if files {
 				files = false
 				cns = is["cns"]
 				sprite = is["sprite"]
 				anim = is["anim"]
+				sc.sound = is["sound"]
+				for i := 1; i <= MaxPalNo; i++ {
+					if is[fmt.Sprintf("pal%v", i)] != "" {
+						sc.pal = append(sc.pal, int32(i))
+					}
+				}
+				movelist = is["movelist"]
+				for i := range fnt {
+					fnt[i][0] = is[fmt.Sprintf("font%v", i)]
+					fnt[i][1] = is[fmt.Sprintf("fnt_height%v", i)]
+				}
+			}
+		case fmt.Sprintf("%v.files", sys.language):
+			if lanFiles {
+				lanFiles = false
+				cns = is["cns"]
+				if is["sprite"] != "" {
+					sprite = is["sprite"]
+				}
+				if is["anim"] != "" {
+					anim = is["anim"]
+				}
 				sc.sound = is["sound"]
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
