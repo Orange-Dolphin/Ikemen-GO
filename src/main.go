@@ -220,6 +220,7 @@ type configSettings struct {
 	InputButtonAssist          bool
 	InputSOCDResolution        int32
 	IP                         map[string]string
+	Language				   string
 	LifeMul                    float32
 	ListenPort                 string
 	LoseSimul                  bool
@@ -372,6 +373,7 @@ func setupConfig() configSettings {
 	sys.helperMax = tmp.MaxHelper
 	sys.inputButtonAssist = tmp.InputButtonAssist
 	sys.inputSOCDresolution = Clamp(tmp.InputSOCDResolution, 0, 4)
+	sys.language = tmp.Language
 	sys.lifeMul = tmp.LifeMul / 100
 	sys.lifeShare = [...]bool{tmp.TeamLifeShare, tmp.TeamLifeShare}
 	sys.listenPort = tmp.ListenPort
