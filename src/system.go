@@ -111,6 +111,7 @@ type System struct {
 	redrawWait              struct{ nextTime, lastDraw time.Time }
 	brightness              int32
 	roundTime               int32
+	language                string
 	lifeMul                 float32
 	team1VS2Life            float32
 	turnsRecoveryRate       float32
