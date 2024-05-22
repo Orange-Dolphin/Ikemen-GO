@@ -5770,7 +5770,7 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 	}
 	lines, i, cmd, stcommon := SplitAndTrim(str, "\n"), 0, "", ""
 	var st [11]string
-	info, files := true, true
+	info, files, lanFiles := true, true, true
 	for i < len(lines) {
 		// Parse each ini section
 		is, name, _ := ReadIniSection(lines, &i)
@@ -5817,6 +5817,16 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 			// Read files section to find the command and state filenames
 			if files {
 				files = false
+				cmd, stcommon = is["cmd"], is["stcommon"]
+				st[0] = is["st"]
+				for i := 1; i < len(st); i++ {
+					st[i] = is[fmt.Sprintf("st%v", i-1)]
+				}
+			}
+		case fmt.Sprintf("%v.files", sys.language) :
+			if lanFiles {
+				files = false
+				lanFiles = false
 				cmd, stcommon = is["cmd"], is["stcommon"]
 				st[0] = is["st"]
 				for i := 1; i < len(st); i++ {
