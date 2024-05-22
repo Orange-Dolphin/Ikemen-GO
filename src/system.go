@@ -2459,7 +2459,7 @@ func (s *Select) addChar(def string) {
 		return
 	}
 	sc.def = def
-	lines, i, info, lanInfo, files, lanFiles, keymap, arcade := SplitAndTrim(str, "\n"), 0, true, true, true, true, true, true
+	lines, i, info, files, keymap, arcade, lanInfo, lanFiles, lanKeymap, lanArcade := SplitAndTrim(str, "\n"), 0, true, true, true, true, true, true, true, true
 	var cns, sprite, anim, movelist string
 	var fnt [10][2]string
 	for i < len(lines) {
@@ -2484,18 +2484,20 @@ func (s *Select) addChar(def string) {
 			}
 		case fmt.Sprintf("%v.info", sys.language) :
 			if lanInfo {
+				info = false
 				lanInfo = false
 				var ok bool
-				if _, ok, _ = is.getText("displayname"); ok {
-					sc.name, _, _ = is.getText("displayname")
+				if sc.name, ok, _ = is.getText("displayname"); !ok {
+					sc.name, _, _ = is.getText("name")
 				}
-				
-				if _, ok, _ = is.getText("lifebarname"); ok {
-					sc.lifebarname, _, _ = is.getText("lifebarname")
+				if sc.lifebarname, ok, _ = is.getText("lifebarname"); !ok {
+					sc.lifebarname = sc.name
 				}
-				
-				if _, ok, _ = is.getText("author"); ok {
-					sc.author, _, _ = is.getText("author")
+				sc.author, _, _ = is.getText("author")
+				sc.pal_defaults = is.readI32CsvForStage("pal.defaults")
+				is.ReadI32("localcoord", &sc.localcoord)
+				if ok = is.ReadF32("portraitscale", &sc.portrait_scale); !ok {
+					sc.portrait_scale = 320 / float32(sc.localcoord)
 				}
 			}
 		case "files":
@@ -2516,16 +2518,13 @@ func (s *Select) addChar(def string) {
 					fnt[i][1] = is[fmt.Sprintf("fnt_height%v", i)]
 				}
 			}
-		case fmt.Sprintf("%v.files", sys.language):
+		case fmt.Sprintf("%v.files", sys.language) :
 			if lanFiles {
+				files = false
 				lanFiles = false
 				cns = is["cns"]
-				if is["sprite"] != "" {
-					sprite = is["sprite"]
-				}
-				if is["anim"] != "" {
-					anim = is["anim"]
-				}
+				sprite = is["sprite"]
+				anim = is["anim"]
 				sc.sound = is["sound"]
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
@@ -2550,9 +2549,30 @@ func (s *Select) addChar(def string) {
 					}
 				}
 			}
+		case fmt.Sprintf("%v.palette ", sys.language) :
+			if lanKeymap &&
+				len(subname) >= 6 && strings.ToLower(subname[:6]) == "keymap" {
+				keymap = false
+				for _, v := range [12]string{"a", "b", "c", "x", "y", "z",
+					"a2", "b2", "c2", "x2", "y2", "z2"} {
+					var i32 int32
+					if is.ReadI32(v, &i32) {
+						sc.pal_keymap = append(sc.pal_keymap, i32)
+					}
+				}
+			}
 		case "arcade":
 			if arcade {
 				arcade = false
+				sc.intro, _, _ = is.getText("intro.storyboard")
+				sc.ending, _, _ = is.getText("ending.storyboard")
+				sc.arcadepath, _, _ = is.getText("arcadepath")
+				sc.ratiopath, _, _ = is.getText("ratiopath")
+			}
+		case fmt.Sprintf("%v.arcade", sys.language) :
+			if lanArcade {
+				arcade = false
+				lanArcade = false
 				sc.intro, _, _ = is.getText("intro.storyboard")
 				sc.ending, _, _ = is.getText("ending.storyboard")
 				sc.arcadepath, _, _ = is.getText("arcadepath")
