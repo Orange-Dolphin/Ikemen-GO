@@ -95,9 +95,8 @@ local motif =
 	},
 	languages =
 	{
-		languages = {"en", "ja"},
+		languages = {"en"},
 		en = "English",
-		ja = "Japanese",
 	},
 	title_info =
 	{
@@ -2372,7 +2371,6 @@ for line in main.motifData:gmatch('([^\n]*)\n?') do
 							if subt == 'teammenu' then
 								prefix = 'p' .. i .. '_'
 							end
-							print(bg)
 							if prefix == not nil then 
 								for _, v in ipairs({'_bg_', '_bg_active_'}) do
 									local bg = param:gsub('_itemname_', v)
