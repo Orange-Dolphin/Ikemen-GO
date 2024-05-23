@@ -2697,7 +2697,7 @@ func (s *Select) AddStage(def string) error {
 		return err
 	}
 	tstr = fmt.Sprintf("Stage added: %v", def)
-	i, info, music, bgdef, stageinfo := 0, true, true, true, true
+	i, info, music, bgdef, stageinfo, lanInfo, lanMusic, lanBgdef, lanStageinfo := 0, true, true, true, true, true, true, true, true
 	var spr string
 	s.stagelist = append(s.stagelist, *newSelectStage())
 	ss := &s.stagelist[len(s.stagelist)-1]
@@ -2721,9 +2721,32 @@ func (s *Select) AddStage(def string) error {
 					return nil
 				}
 			}
+		case fmt.Sprintf("%v.info", sys.language) :
+			if lanInfo {
+				info = false
+				lanInfo = false
+				var ok bool
+				if ss.name, ok, _ = is.getText("displayname"); !ok {
+					if ss.name, ok, _ = is.getText("name"); !ok {
+						ss.name = def
+					}
+				}
+				if err := is.LoadFile("attachedchar", []string{def, "", sys.motifDir, "data/"}, func(filename string) error {
+					ss.attachedchardef = filename
+					return nil
+				}); err != nil {
+					return nil
+				}
+			}
 		case "music":
 			if music {
 				music = false
+				ss.stagebgm = is
+			}
+		case fmt.Sprintf("%v.music", sys.language) :
+			if lanMusic {
+				music = false
+				lanMusic = false
 				ss.stagebgm = is
 			}
 		case "bgdef":
@@ -2731,9 +2754,25 @@ func (s *Select) AddStage(def string) error {
 				bgdef = false
 				spr = is["spr"]
 			}
+		case fmt.Sprintf("%v.bgdef", sys.language) :
+			if lanBgdef {
+				bgdef = false
+				lanBgdef = false
+				spr = is["spr"]
+			}
 		case "stageinfo":
 			if stageinfo {
 				stageinfo = false
+				if ok := is.ReadF32("portraitscale", &ss.portrait_scale); !ok {
+					localcoord := float32(320)
+					is.ReadF32("localcoord", &localcoord)
+					ss.portrait_scale = 320 / localcoord
+				}
+			}
+		case fmt.Sprintf("%v.stageinfo", sys.language) :
+			if lanStageinfo {
+				stageinfo = false
+				lanStageinfo = false
 				if ok := is.ReadF32("portraitscale", &ss.portrait_scale); !ok {
 					localcoord := float32(320)
 					is.ReadF32("localcoord", &localcoord)
