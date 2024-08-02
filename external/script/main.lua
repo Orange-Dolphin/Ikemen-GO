@@ -1792,7 +1792,14 @@ function main.f_addChar(line, playable, loading, slot)
 			c = c:gsub('\\', '/')
 			c = tostring(c)
 			--nClock = os.clock()
-			addChar(c)
+			preloadPalette = false
+			for v, h in ipairs(main.f_strsplit(',', line)) do
+				if h:match('preloadpalettes = 1') then
+					preloadPalette = true
+					break
+				end
+			end
+			addChar(c, preloadPalette)
 			--print(c .. ": " .. os.clock() - nClock)
 			if c:lower() == 'skipslot' then
 				main.t_selChars[row].skip = 1
