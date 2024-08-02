@@ -2496,6 +2496,7 @@ type SelectChar struct {
 	ratiopath      string
 	movelist       string
 	pal            []int32
+	palfiles       []string
 	pal_defaults   []int32
 	pal_keymap     []int32
 	localcoord     int32
@@ -2504,6 +2505,7 @@ type SelectChar struct {
 	anims          PreloadedAnims
 	sff            *Sff
 	fnt            [10]*Fnt
+	preloadedpals  bool
 }
 
 func newSelectChar() *SelectChar {
@@ -2594,7 +2596,7 @@ func (s *Select) GetStage(n int) *SelectStage {
 	}
 	return &s.stagelist[n-1]
 }
-func (s *Select) addChar(def string) {
+func (s *Select) addChar(def string, preloadPal bool) {
 	var tstr string
 	tnow := time.Now()
 	defer func() {
@@ -2613,6 +2615,7 @@ func (s *Select) addChar(def string) {
 		sc.def, sc.name = "randomselect", "Random"
 		return
 	}
+	sc.preloadedpals = preloadPal
 	idx := strings.Index(def, "/")
 	if len(def) >= 4 && strings.ToLower(def[len(def)-4:]) == ".def" {
 		if idx < 0 {
@@ -2674,6 +2677,7 @@ func (s *Select) addChar(def string) {
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
+						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
 					}
 				}
 				movelist = is["movelist"]
@@ -2758,7 +2762,8 @@ func (s *Select) addChar(def string) {
 		LoadFile(&fp, []string{def, "", "data/"}, func(file string) error {
 			var selPal []int32
 			var err error
-			sc.sff, selPal, err = preloadSff(file, true, listSpr)
+			fmt.Println("========")
+			sc.sff, selPal, err = preloadSff(file, true, listSpr, preloadPal, s.charSpritePreload, sc.palfiles)
 			if err != nil {
 				panic(fmt.Errorf("failed to load %v: %v\nerror preloading %v", file, err, def))
 			}
@@ -2799,6 +2804,13 @@ func (s *Select) addChar(def string) {
 				}
 				return nil
 			})
+		}
+	}
+	if preloadPal == true {
+		if sc.anims[[2]int16{0, -1}] != nil {//Check is in place to avoid crashing when loading match through command line
+			sc.anims[[2]int16{0, -1}].palettedata.palettes = sc.anims[[2]int16{0, -1}].sff.palList.palettes
+			sc.anims[[2]int16{0, -1}].palettedata.paletteMap = sc.anims[[2]int16{0, -1}].sff.palList.paletteMap
+			sc.anims[[2]int16{0, -1}].palettedata.PalTable = sc.anims[[2]int16{0, -1}].sff.palList.PalTable
 		}
 	}
 }
@@ -2886,7 +2898,7 @@ func (s *Select) AddStage(def string) error {
 		// preload portion of sff file
 		LoadFile(&spr, []string{def, "", "data/"}, func(file string) error {
 			var err error
-			ss.sff, _, err = preloadSff(file, false, listSpr)
+			ss.sff, _, err = preloadSff(file, false, listSpr, false, nil, nil)
 			if err != nil {
 				panic(fmt.Errorf("failed to load %v: %v\nerror preloading %v", file, err, def))
 			}
