@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,7 +62,7 @@ func systemScriptInit(l *lua.LState) {
 		for _, c := range strings.Split(strings.TrimSpace(strArg(l, 1)), "\n") {
 			c = strings.Trim(c, "\r")
 			if len(c) > 0 {
-				sys.sel.addChar(c)
+				sys.sel.addChar(c, boolArg(l, 2))
 			}
 		}
 		return 0
@@ -427,6 +429,27 @@ func systemScriptInit(l *lua.LState) {
 		bg.reset()
 		return 0
 	})
+	luaRegister(l, "changeColorPalette", func(*lua.LState) int {
+		preanim := toUserData(l, 1).(*Anim)
+		p := int16(numArg(l, 2)) 
+		x := 0
+		for x < len(preanim.anim.frames) {
+			value, ok := preanim.anim.sff.sprites[[2]int16{preanim.anim.frames[x].Group, preanim.anim.frames[x].Number}]//Check if frame in animation exists, to avoid a crash
+			if ok {
+				if value.Size[0] != 0 {
+					if value.palidx != -1 {//Avoid crash
+						if preanim.anim.palettedata.PalTable[[2]int16{1, p}] != -1 {
+							preanim.anim.palettedata.paletteMap[preanim.anim.sff.sprites[[2]int16{preanim.anim.frames[x].Group, preanim.anim.frames[x].Number}].palidx] = preanim.anim.palettedata.PalTable[[2]int16{1, p}]
+							break
+						}
+					}
+				}
+			}
+			x = x + 1
+		}
+		l.Push(newUserData(l, preanim))
+		return 1
+	})
 	luaRegister(l, "charChangeAnim", func(l *lua.LState) int {
 		// pn, anim_no, anim_elem, ffx
 		pn := int(numArg(l, 1))
@@ -741,6 +764,192 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "connected", func(*lua.LState) int {
 		l.Push(lua.LBool(sys.netInput.IsConnected()))
+		return 1
+	})
+	luaRegister(l, "createUniqueAnim", func(*lua.LState) int {
+		oldPreanim := toUserData(l, 1).(*Anim)
+		c := sys.sel.GetChar(int(numArg(l, 2)))
+		if c.preloadedpals == false {
+			if oldPreanim.anim.sff.header.Ver0 == 1 {
+				var newPalSet PaletteList
+				var U *os.File
+				var err error
+				newPalSet.PalTable = make(map[[2]int16]int)
+				x := 0
+				pathname := strings.SplitAfterN(oldPreanim.anim.sff.filename, "/", -1)[0]
+				for x < len(c.palfiles) {
+					var Pal []uint32
+					Pal = make([]uint32, 256)
+					replaceCondition := true
+					U, err = os.Open(pathname + c.palfiles[x])
+					if err != nil {
+						fmt.Println("Failed to open " + c.palfiles[x]) 
+						replaceCondition = false
+					} else {
+						for i := 255; i >= 0; i-- {
+							var rgb [3]byte
+							if _, err = io.ReadFull(U, rgb[:]); err != nil {
+								replaceCondition = false
+								break
+							}
+							if i != 0 {
+								Pal[i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
+							}
+						}
+						if replaceCondition == true {
+							newPalSet.PalTable[[2]int16{1, int16(x + 1)}] = int(x)
+						}
+						chk(U.Close())
+					}
+					newPalSet.SetSource(x, Pal)
+					x = x + 1
+				}
+				oldPreanim.anim.sff.palList.palettes = newPalSet.palettes
+				oldPreanim.anim.sff.palList.paletteMap = newPalSet.paletteMap
+				oldPreanim.anim.sff.palList.PalTable = newPalSet.PalTable
+				for k, _ := range c.anims {
+					sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.palettes = newPalSet.palettes
+					sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.paletteMap = newPalSet.paletteMap
+					sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.PalTable = newPalSet.PalTable
+				}
+				sys.sel.charlist[int(numArg(l, 2))].preloadedpals = true
+			} else {
+				sff := newSff()
+				f, err := os.Open(oldPreanim.anim.sff.filename)
+				if err != nil {
+					return 0
+				}
+				defer func() { chk(f.Close()) }()
+				h := &SffHeader{}
+				var lofs, tofs uint32
+				if err := h.Read(f, &lofs, &tofs); err != nil {
+					return 0
+				}
+				sff.header.Ver0 = h.Ver0
+				sff.header.Ver1 = h.Ver1
+				sff.header.Ver2 = h.Ver2
+				sff.header.Ver3 = h.Ver3
+				read := func(x interface{}) error {
+					return binary.Read(f, binary.LittleEndian, x)
+				}
+				uniquePals := make(map[[2]int16]int)
+				for i := 0; i < int(h.NumberOfPalettes); i++ {
+					f.Seek(int64(h.FirstPaletteHeaderOffset)+int64(i*16), 0)
+					var gn_ [3]int16
+					if err := read(gn_[:]); err != nil {
+						
+					}
+					var link uint16
+					if err := read(&link); err != nil {
+						
+					}
+					var ofs, siz uint32
+					if err := read(&ofs); err != nil {
+						
+					}
+					if err := read(&siz); err != nil {
+						
+					}
+					var pal []uint32
+					var idx int
+					if old, ok := uniquePals[[...]int16{gn_[0], gn_[1]}]; ok {
+						idx = old
+						pal = sff.palList.Get(old)
+						sys.errLog.Printf("%v duplicated palette: %v,%v (%v/%v)\n", "F", gn_[0], gn_[1], i+1, sff.header.NumberOfPalettes)
+					} else if siz == 0 {
+						idx = int(link)
+						pal = sff.palList.Get(idx)
+					} else {
+						f.Seek(int64(lofs+ofs), 0)
+						if gn_[0] == 1 {
+							pal = make([]uint32, 256)
+							var rgba [4]byte
+							for i := 0; i < int(siz)/4 && i < len(pal); i++ {
+								if err := read(rgba[:]); err != nil {
+									
+								}
+								if sff.header.Ver2 == 0 {
+									rgba[3] = 255
+								}
+								pal[i] = uint32(rgba[3])<<24 | uint32(rgba[2])<<16 | uint32(rgba[1])<<8 | uint32(rgba[0])
+							}
+							if sff.header.Ver2 == 0 {
+								pal[0] = uint32(0)
+							}
+							idx = i
+						}
+					}
+					uniquePals[[...]int16{gn_[0], gn_[1]}] = idx
+					sff.palList.SetSource(i, pal)
+					if gn_[0] == 1 && gn_[1] > 0 && gn_[1] <= MaxPalNo {
+						sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] = idx
+					}
+					oldPreanim.anim.sff.palList.palettes = sff.palList.palettes
+					oldPreanim.anim.sff.palList.paletteMap = sff.palList.paletteMap
+					oldPreanim.anim.sff.palList.PalTable = sff.palList.PalTable
+					for k, _ := range c.anims {
+						sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.palettes = sff.palList.palettes
+						sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.paletteMap = sff.palList.paletteMap
+						sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.PalTable = sff.palList.PalTable
+					}
+					sys.sel.charlist[int(numArg(l, 2))].preloadedpals = true
+				}
+			}
+			for h, _ := range oldPreanim.anim.sff.sprites {
+				isPortrait := false
+				for c, _ := range sys.sel.charSpritePreload {
+					if c == h {
+						isPortrait = true
+					}
+				}
+				if isPortrait == false {
+					oldPreanim.anim.sff.sprites[h].Pal = nil
+				}
+			}
+		}
+		
+		
+		
+		
+		
+		
+		//Copy information
+		uniqueSff := newSff()
+		uniqueSff.header = oldPreanim.anim.sff.header
+		uniqueSff.sprites = oldPreanim.anim.sff.sprites
+		uniqueSff.palList.palettes = oldPreanim.anim.sff.palList.palettes
+		x:= 0
+		uniqueSff.palList.paletteMap = nil
+		for x < len(oldPreanim.anim.sff.palList.paletteMap) {//Copy each value from the palette map individually, without doing this, different sides/members of the same character will share palettes.
+			uniqueSff.palList.paletteMap = append(uniqueSff.palList.paletteMap, x)
+			x = x + 1
+		}
+		uniqueSff.palList.PalTable = oldPreanim.anim.sff.palList.PalTable
+		uniqueSff.palList.numcols = oldPreanim.anim.sff.palList.numcols
+		uniqueSff.palList.PalTex = oldPreanim.anim.sff.palList.PalTex
+		frameAnims := ""
+		x = 0
+		for x < len(oldPreanim.anim.frames) {
+			frameAnims = frameAnims + fmt.Sprint(oldPreanim.anim.frames[x].Group) + "," + fmt.Sprint(oldPreanim.anim.frames[x].Number) + "," + fmt.Sprint(oldPreanim.anim.frames[x].X) + "," + fmt.Sprint(oldPreanim.anim.frames[x].Y) + "," + fmt.Sprint(oldPreanim.anim.frames[x].Time) + "\n"
+			x = x + 1
+		}
+		//Create animation and copy animation data
+		newAnim := NewAnim(uniqueSff, frameAnims)
+		newAnim.window = oldPreanim.window
+		newAnim.x = oldPreanim.x
+		newAnim.y = oldPreanim.y
+		newAnim.xscl = oldPreanim.xscl
+		newAnim.yscl = oldPreanim.yscl
+		newAnim.palfx = oldPreanim.palfx
+		//Information to match the current frame in the animation
+		newAnim.anim.looptime = oldPreanim.anim.looptime
+		newAnim.anim.loopstart = oldPreanim.anim.loopstart
+		newAnim.anim.current = oldPreanim.anim.current
+		newAnim.anim.sumtime = oldPreanim.anim.sumtime
+		newAnim.anim.frames = oldPreanim.anim.frames
+		newAnim.anim.interpolate_blend_srcalpha = oldPreanim.anim.interpolate_blend_srcalpha
+		newAnim.anim.interpolate_scale = oldPreanim.anim.interpolate_scale
+		l.Push(newUserData(l, newAnim))
 		return 1
 	})
 	luaRegister(l, "dialogueReset", func(*lua.LState) int {
