@@ -1402,6 +1402,35 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 				return nil, nil, err
 			}
 		}
+		if indexOfPrevious != 0 && int(indexOfPrevious) < i{
+			if _, ok := preloadSpr[[...]int16{spriteList[i].Group, spriteList[i].Number}]; ok {
+				if _, ok := preloadSpr[[...]int16{spriteList[indexOfPrevious].Group, spriteList[indexOfPrevious].Number}]; !ok {
+					preloadSpr[[...]int16{spriteList[indexOfPrevious].Group, spriteList[indexOfPrevious].Number}] = true
+				}
+			}
+			
+		}
+		if h.Ver0 == 1 {
+			shofs = xofs
+		} else {
+			shofs += 28
+		}
+	}
+	shofs, xofs, size = h.FirstSpriteHeaderOffset, 0, 0
+	plShofs, plXofs, plSize = h.FirstPaletteHeaderOffset, 0, 0
+	for i := 0; i < len(spriteList); i++ {
+		f.Seek(int64(shofs), 0)
+		switch h.Ver0 {
+		case 1:
+			if err := spriteList[i].readHeader(f, &xofs, &size, &indexOfPrevious); err != nil {
+				return nil, nil, err
+			}
+		case 2:
+			if err := spriteList[i].readHeaderV2(f, &xofs, &size,
+				lofs, tofs, &indexOfPrevious); err != nil {
+				return nil, nil, err
+			}
+		}
 		if _, ok := preloadSpr[[...]int16{spriteList[i].Group, spriteList[i].Number}]; ok || (prev == nil && spriteList[i].palidx < 0) {
 			if ok {
 				ok = sff.sprites[[...]int16{spriteList[i].Group, spriteList[i].Number}] == nil
