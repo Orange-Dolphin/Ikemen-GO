@@ -3000,7 +3000,7 @@ function start.f_selectVersus(active, t_orderSelect)
 						if start.p[side].t_selTemp[member].anim ~= done_anim then
 							start.p[side].t_selTemp[member].anim_data = start.f_animGet(v.ref, side, member, motif.vs_screen, '', '_done', false) or start.p[side].t_selTemp[member].anim_data
 							if motif.vs_screen.enablepalettes == 1 then
-								start.p[side].t_selTemp[member].anim_data = createUniqueAnim(start.p[side].t_selTemp[member].anim_data)
+								start.p[side].t_selTemp[member].anim_data = createUniqueAnim(start.p[side].t_selTemp[member].anim_data, start.p[side].t_selTemp[member].ref)
 								start.p[side].t_selTemp[member].anim_data = changeColorPalette(start.p[side].t_selTemp[member].anim_data, v.pal)
 							end
 						end
@@ -3023,7 +3023,7 @@ function start.f_selectVersus(active, t_orderSelect)
 			if motif.vs_screen.enablepalettes == 1 then
 				if firstLoop == true then
 					for member, v in ipairs(start.p[side].t_selected) do
-						start.p[side].t_selTemp[member].anim_data = createUniqueAnim(start.p[side].t_selTemp[member].anim_data)
+						start.p[side].t_selTemp[member].anim_data = createUniqueAnim(start.p[side].t_selTemp[member].anim_data, start.p[side].t_selTemp[member].ref)
 						start.p[side].t_selTemp[member].anim_data = changeColorPalette(start.p[side].t_selTemp[member].anim_data, v.pal)
 					end
 				end
