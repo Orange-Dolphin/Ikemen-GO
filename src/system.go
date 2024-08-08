@@ -321,7 +321,7 @@ type System struct {
 
 	// Shader Vars
 	postProcessingShader    int32
-	multisampleAntialiasing bool
+	multisampleAntialiasing int32
 	fontShaderVer           uint
 
 	// External Shader Vars
