@@ -774,7 +774,8 @@ func systemScriptInit(l *lua.LState) {
 				var newPalSet PaletteList
 				var U *os.File
 				var err error
-				newPalSet.PalTable = make(map[[2]int16]int)
+				newPalSet = oldPreanim.anim.sff.palList
+				//newPalSet.PalTable = make(map[[2]int16]int)
 				x := 0
 				pathname := strings.SplitAfterN(oldPreanim.anim.sff.filename, "/", -1)[0]
 				for x < len(c.palfiles) {
@@ -904,6 +905,7 @@ func systemScriptInit(l *lua.LState) {
 				}
 				if isPortrait == false {
 					oldPreanim.anim.sff.sprites[h].Pal = nil
+					oldPreanim.anim.sff.sprites[h].palidx = 0
 				}
 			}
 		}
