@@ -1466,6 +1466,45 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloa
 			}
 		}
 	}
+
+	if preloadPalette == true {
+		var U *os.File
+		x := 0
+		if h.Ver0 == 1 {
+			pathname := strings.SplitAfterN(filename, "/", -1)[0]
+			for x < len(paletteNames) {
+				replaceCondition := true
+				U, err = os.Open(pathname + paletteNames[x])
+				if err != nil {
+					fmt.Println("Failed to open " + paletteNames[x]) 
+					replaceCondition = false
+				} else {
+					for i := 255; i >= 0; i-- {
+						var rgb [3]byte
+						if _, err = io.ReadFull(U, rgb[:]); err != nil {
+							replaceCondition = false
+							break
+						}
+						if i != 0 {
+							sff.palList.palettes[x][i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
+						}
+					}
+					if replaceCondition == true {
+						if sff.palList.PalTable[[2]int16{1, int16(x + 1)}] == -1 {
+							sff.palList.PalTable[[2]int16{1, int16(x + 1)}] = int(x)
+						}
+						selPal = append(selPal, int32(x + 1))
+					}
+					chk(U.Close())
+				}
+				x = x + 1
+			}
+		}
+	}
+	
+	uniquePal := true
+	
+	
 	for i := 0; i < len(spriteList); i++ {
 		spriteList[i] = newSprite()
 		f.Seek(int64(shofs), 0)
@@ -1505,6 +1544,17 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloa
 						//pl, false); err != nil {
 						return nil, nil, err
 					}
+					if preloadPalette == true  {
+						if i == 0 || (spriteList[i].Group == 0 && spriteList[i].Number == 0) {
+							uniquePal = false
+							if i != 0 {
+								//preloadIdx = spriteList[i].palidx
+								spriteList[i].palidx = 0
+							}
+						} else if  spriteList[i].palidx != 0 {
+							uniquePal = true
+						}
+					}
 				case 2:
 					if err := spriteList[i].readV2(f, int64(xofs), size); err != nil {
 						return nil, nil, err
@@ -1519,13 +1569,7 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloa
 							spriteList[i].palidx = 0
 						}
 						if preloadPalette == true {
-							isPortrait := false
-							for c, _ := range portraits {
-								if c == [...]int16{spriteList[i].Group, spriteList[i].Number} {
-									isPortrait = true
-								}
-							}
-							if isPortrait == false {
+							if uniquePal == false && len(selPal) > 0 {
 								spriteList[i].Pal = nil
 							}
 						}
@@ -1610,40 +1654,6 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloa
 			}
 			if len(selPal) >= MaxPalNo {
 				break
-			}
-		}
-	}
-	if preloadPalette == true {
-		var U *os.File
-		x := 0
-		if h.Ver0 == 1 {
-			pathname := strings.SplitAfterN(filename, "/", -1)[0]
-			for x < len(paletteNames) {
-				replaceCondition := true
-				U, err = os.Open(pathname + paletteNames[x])
-				if err != nil {
-					fmt.Println("Failed to open " + paletteNames[x]) 
-					replaceCondition = false
-				} else {
-					for i := 255; i >= 0; i-- {
-						var rgb [3]byte
-						if _, err = io.ReadFull(U, rgb[:]); err != nil {
-							replaceCondition = false
-							break
-						}
-						if i != 0 {
-							sff.palList.palettes[x][i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
-						}
-					}
-					if replaceCondition == true {
-						if sff.palList.PalTable[[2]int16{1, int16(x + 1)}] == -1 {
-							sff.palList.PalTable[[2]int16{1, int16(x + 1)}] = int(x)
-							selPal = append(selPal, int32(x + 1))
-						}
-					}
-					chk(U.Close())
-				}
-				x = x + 1
 			}
 		}
 	}
