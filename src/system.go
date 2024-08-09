@@ -2821,7 +2821,6 @@ func (s *Select) addChar(def string, preloadPal bool) {
 		LoadFile(&fp, []string{def, "", "data/"}, func(file string) error {
 			var selPal []int32
 			var err error
-			fmt.Println("========")
 			sc.sff, selPal, err = preloadSff(file, true, listSpr, preloadPal, s.charSpritePreload, sc.palfiles)
 			if err != nil {
 				panic(fmt.Errorf("failed to load %v: %v\nerror preloading %v", file, err, def))
@@ -2830,7 +2829,7 @@ func (s *Select) addChar(def string, preloadPal bool) {
 			for k := range s.charSpritePreload {
 				sc.anims.addSprite(sc.sff, k[0], k[1])
 			}
-			if len(sc.pal) == 0 {
+			if len(sc.pal) == 0 || sc.sff.header.Ver0 == 2{
 				sc.pal = selPal
 			}
 			return nil
