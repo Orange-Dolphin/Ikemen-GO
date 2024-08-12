@@ -773,6 +773,7 @@ func systemScriptInit(l *lua.LState) {
 	luaRegister(l, "createUniqueAnim", func(*lua.LState) int {
 		oldPreanim := toUserData(l, 1).(*Anim)
 		c := sys.sel.GetChar(int(numArg(l, 2)))
+		fmt.Println(c.pal)
 		if c.preloadedpals == false {
 			if oldPreanim.anim.sff.header.Ver0 == 1 {
 				var newPalSet PaletteList
@@ -802,11 +803,11 @@ func systemScriptInit(l *lua.LState) {
 							}
 						}
 						if replaceCondition == true {
-							newPalSet.PalTable[[2]int16{1, int16(x + 1)}] = int(x)
+							newPalSet.PalTable[[2]int16{1, int16(c.pal[x])}] = int(c.pal[x])
 						}
 						chk(U.Close())
 					}
-					newPalSet.SetSource(x, Pal)
+					newPalSet.SetSource(int(c.pal[x]), Pal)
 					x = x + 1
 				}
 				oldPreanim.anim.sff.palList.palettes = newPalSet.palettes
