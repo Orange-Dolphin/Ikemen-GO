@@ -1610,14 +1610,16 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloa
 						}
 						spriteList[i].palidx = 0
 						if preloadPalette == true {
-							isPortrait := false
-							for c, _ := range portraits {
-								if c == [...]int16{spriteList[i].Group, spriteList[i].Number} {
-									isPortrait = true
+							if len(selPal) > 0 {
+								isPortrait := false
+								for c, _ := range portraits {
+									if c == [...]int16{spriteList[i].Group, spriteList[i].Number} {
+										isPortrait = true
+									}
 								}
-							}
-							if isPortrait == false {
-								spriteList[i].Pal = nil
+								if isPortrait == false {
+									spriteList[i].Pal = nil
+								}
 							}
 						}
 					}
