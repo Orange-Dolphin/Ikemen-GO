@@ -898,19 +898,21 @@ func systemScriptInit(l *lua.LState) {
 						sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.paletteMap = sff.palList.paletteMap
 						sys.sel.charlist[int(numArg(l, 2))].anims[k].palettedata.PalTable = sff.palList.PalTable
 					}
-					sys.sel.charlist[int(numArg(l, 2))].preloadedpals = true
 				}
+				sys.sel.charlist[int(numArg(l, 2))].preloadedpals = true
 			}
-			for h, _ := range oldPreanim.anim.sff.sprites {
-				isPortrait := false
-				for c, _ := range sys.sel.charSpritePreload {
-					if c == h {
-						isPortrait = true
+			if len(c.pal) > 0 {
+				for h, _ := range oldPreanim.anim.sff.sprites {
+					isPortrait := false
+					for c, _ := range sys.sel.charSpritePreload {
+						if c == h {
+							isPortrait = true
+						}
 					}
-				}
-				if isPortrait == false {
-					oldPreanim.anim.sff.sprites[h].Pal = nil
-					oldPreanim.anim.sff.sprites[h].palidx = 0
+					if isPortrait == false {
+						oldPreanim.anim.sff.sprites[h].Pal = nil
+						oldPreanim.anim.sff.sprites[h].palidx = 0
+					}
 				}
 			}
 		}
