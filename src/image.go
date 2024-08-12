@@ -1361,6 +1361,7 @@ func loadSff(filename string, char bool) (*Sff, error) {
 	return s, nil
 }
 func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloadPalette bool, portraits map[[2]int16]bool, paletteNames []string ) (*Sff, []int32, error) {
+	c := sys.sel.charlist[len(sys.sel.charlist)-1]
 	var selPal []int32
 	sff := newSff()
 	f, err := os.Open(filename)
@@ -1486,7 +1487,7 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool, preloa
 							break
 						}
 						if i != 0 {
-							sff.palList.palettes[x][i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
+							sff.palList.palettes[c.pal[x] - 1][i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
 						}
 					}
 					if replaceCondition == true {
