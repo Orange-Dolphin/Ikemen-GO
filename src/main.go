@@ -343,7 +343,7 @@ func setupConfig() configSettings {
 	sys.allowDebugKeys = tmp.DebugKeys
 	sys.allowDebugMode = tmp.DebugMode
 	sys.audioDucking = tmp.AudioDucking
-	Mp3SampleRate = int(tmp.AudioSampleRate)
+	sys.audioSampleRate = tmp.AudioSampleRate
 	sys.bgmVolume = tmp.VolumeBgm
 	sys.maxBgmVolume = tmp.MaxBgmVolume
 	sys.borderless = tmp.Borderless
@@ -364,6 +364,10 @@ func setupConfig() configSettings {
 	sys.controllerStickSensitivity = tmp.ControllerStickSensitivity
 	sys.explodMax = tmp.MaxExplod
 	sys.externalShaderList = tmp.ExternalShaders
+	// Bump up shader version for macOS only
+	if runtime.GOOS == "darwin" {
+		tmp.FontShaderVer = max(150, tmp.FontShaderVer)
+	}
 	sys.fontShaderVer = tmp.FontShaderVer
 	// Resoluion stuff
 	sys.fullscreen = tmp.Fullscreen

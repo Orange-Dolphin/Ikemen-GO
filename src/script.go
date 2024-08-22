@@ -3199,11 +3199,11 @@ func triggerFunctions(l *lua.LState) {
 		}
 
 		switch t {
-		case "left":
+		case "back":
 			getClsnCoord(0)
 		case "top":
 			getClsnCoord(1)
-		case "right":
+		case "front":
 			getClsnCoord(2)
 		case "bottom":
 			getClsnCoord(3)
@@ -3496,7 +3496,7 @@ func triggerFunctions(l *lua.LState) {
 				case "anim":
 					ln = lua.LNumber(e.animNo)
 				case "animelem":
-					ln = lua.LNumber(e.animelem)
+					ln = lua.LNumber(e.anim.current + 1)
 				case "pos x":
 					ln = lua.LNumber(e.drawPos[0])
 				case "pos y":
@@ -4297,7 +4297,7 @@ func triggerFunctions(l *lua.LState) {
 				case "anim":
 					lv = lua.LNumber(p.anim)
 				case "animelem":
-					lv = lua.LNumber(p.ani.current)
+					lv = lua.LNumber(p.ani.current + 1)
 				case "supermovetime":
 					lv = lua.LNumber(p.supermovetime)
 				case "pausemovetime":
@@ -4747,7 +4747,7 @@ func triggerFunctions(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "attack", func(*lua.LState) int {
-		l.Push(lua.LNumber(sys.debugWC.attackMul * 100))
+		l.Push(lua.LNumber(sys.debugWC.attackMul[0] * 100))
 		return 1
 	})
 	luaRegister(l, "clamp", func(*lua.LState) int {
@@ -5017,6 +5017,14 @@ func triggerFunctions(l *lua.LState) {
 			l.Push(lua.LBool(sys.debugWC.asf(ASF_animatehitpause)))
 		case "cornerpriority":
 			l.Push(lua.LBool(sys.debugWC.asf(ASF_cornerpriority)))
+		case "drawunder":
+			l.Push(lua.LBool(sys.debugWC.asf(ASF_drawunder)))
+		case "runfirst":
+			l.Push(lua.LBool(sys.debugWC.asf(ASF_runfirst)))
+		case "runlast":
+			l.Push(lua.LBool(sys.debugWC.asf(ASF_runlast)))
+		case "projtypecollision":
+			l.Push(lua.LBool(sys.debugWC.asf(ASF_projtypecollision)))
 		// GlobalSpecialFlag
 		case "intro":
 			l.Push(lua.LBool(sys.gsf(GSF_intro)))

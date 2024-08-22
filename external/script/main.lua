@@ -3045,6 +3045,7 @@ main.t_itemname = {
 	end,
 	--WATCH
 	['watch'] = function()
+		setHomeTeam(1)
 		main.f_playerInput(main.playerInput, 1)
 		main.t_pIn[2] = 1
 		main.cpuSide[1] = true
