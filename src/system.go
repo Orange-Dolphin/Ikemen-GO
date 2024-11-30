@@ -3016,6 +3016,11 @@ func (s *Select) addChar(def string) {
 			sc.anims.addSprite(sc.sff, k[0], k[1])
 		}
 	}
+	for c, _ := range sc.anims {
+		sc.anims[c].palettedata.palettes = sc.sff.palList.palettes
+		sc.anims[c].palettedata.paletteMap = sc.sff.palList.paletteMap
+		sc.anims[c].palettedata.PalTable = sc.sff.palList.PalTable
+	}
 	// read movelist
 	if len(movelist) > 0 {
 		LoadFile(&movelist, []string{def, "", "data/"}, func(file string) error {
