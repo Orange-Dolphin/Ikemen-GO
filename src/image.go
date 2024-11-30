@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"strings"
 	"unsafe"
 )
 
@@ -1440,6 +1441,9 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 					plXofs = xofs
 					if h.Ver0 == 1 {
 						spriteList[i].Pal = pl.Get(spriteList[i].palidx)
+						if spriteList[i].palidx == 0 || (spriteList[i].Group == 0 && spriteList[i].Number == 0) {
+							spriteList[i].usePal = true
+						}
 						if spriteList[i].palidx >= MaxPalNo { //just in case
 							spriteList[i].palidx = 0
 						}
@@ -1585,6 +1589,39 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 					}
 				}
 			}
+		}
+	}
+	var U *os.File
+	x := 0
+	if h.Ver0 == 1 {
+		c := sys.sel.charlist[len(sys.sel.charlist)-1]
+		pathname := strings.SplitAfterN(filename, "/", -1)[0]
+		for x < len(c.palfiles) {
+			replaceCondition := true
+			U, err = os.Open(pathname + c.palfiles[x])
+			if err != nil {
+				fmt.Println("Failed to open " + c.palfiles[x]) 
+				replaceCondition = false
+			} else {
+				for i := 255; i >= 0; i-- {
+					var rgb [3]byte
+					if _, err = io.ReadFull(U, rgb[:]); err != nil {
+						replaceCondition = false
+						break
+					}
+					if i != 0 {
+						sff.palList.palettes[c.pal[x] - 1][i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
+					}
+				}
+				if replaceCondition == true {
+					if sff.palList.PalTable[[2]int16{1, int16(x + 1)}] == -1 {
+						sff.palList.PalTable[[2]int16{1, int16(x + 1)}] = int(x)
+					}
+					selPal = append(selPal, int32(x + 1))
+				}
+				chk(U.Close())
+			}
+			x = x + 1
 		}
 	}
 	return sff, selPal, nil
