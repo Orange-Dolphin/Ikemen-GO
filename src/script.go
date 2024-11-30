@@ -204,11 +204,41 @@ func systemScriptInit(l *lua.LState) {
 			anim = sys.sel.GetStage(int(numArg(l, 2))).anims.get(int16(numArg(l, 3)), int16(numArg(l, 4)))
 		}
 		if anim != nil {
+			newAnim := anim
+			if numArg(l, 6) == 1 {
+				copySff := newSff()
+				for key, value := range anim.sff.sprites {
+					copySff.sprites[key] = newSprite()
+					copySff.sprites[key].Tex = value.Tex
+					copySff.sprites[key].Offset[0] = value.Offset[0]
+					copySff.sprites[key].Offset[1] = value.Offset[1]
+					copySff.sprites[key].Size[0] = value.Size[0]
+					copySff.sprites[key].Size[1] = value.Size[1]
+					copySff.sprites[key].rle = value.rle
+					copySff.sprites[key].Group = value.Group
+					copySff.sprites[key].Number = value.Number
+					copySff.sprites[key].coldepth = value.coldepth
+					copySff.sprites[key].PalTex = value.PalTex
+					copySff.sprites[key].palidx = 0
+					if value.porPal == true{
+						copySff.sprites[key].Pal = nil
+					} else {
+						copySff.sprites[key].Pal = make([]uint32, 256)
+						x := 0
+						for x < len(value.Pal) {
+							
+							copySff.sprites[key].Pal[x] = value.Pal[x]
+							x = x + 1
+						}
+					}
+				}
+				newAnim.sff = copySff	
+			}
 			pfx := newPalFX()
 			pfx.clear()
 			pfx.time = -1
 			// TODO: palette changing depending on palette currently loaded on character
-			a := &Anim{anim: anim, window: sys.scrrect, xscl: 1, yscl: 1, palfx: pfx}
+			a := &Anim{anim: newAnim, window: sys.scrrect, xscl: 1, yscl: 1, palfx: pfx}
 			if l.GetTop() >= 5 && !boolArg(l, 5) && a.anim.totaltime == a.anim.looptime {
 				a.anim.totaltime = -1
 				a.anim.looptime = 0
@@ -555,6 +585,12 @@ func systemScriptInit(l *lua.LState) {
 			}
 		}
 		l.Push(lua.LBool(false))
+		return 1
+	})
+	luaRegister(l, "changeColorPalette", func(*lua.LState) int {
+		a, _ := toUserData(l, 1).(*Anim)
+		a.anim.palettedata.paletteMap[0] = int(numArg(l, 2)) - 1
+		l.Push(newUserData(l, a))
 		return 1
 	})
 	luaRegister(l, "charMapSet", func(*lua.LState) int {
@@ -2090,7 +2126,7 @@ func systemScriptInit(l *lua.LState) {
 			l.RaiseError("%v\nInvalid team side: %v\n", sys.sel.GetChar(cn).def, tn)
 		}
 		pl := int(numArg(l, 3))
-		if pl < 1 || pl > 12 {
+		if pl < 1 || pl > MaxPalNo {
 			l.RaiseError("%v\nInvalid palette: %v\n", sys.sel.GetChar(cn).def, pl)
 		}
 		var ret int
