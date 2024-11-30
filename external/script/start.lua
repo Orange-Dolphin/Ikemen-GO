@@ -769,7 +769,6 @@ function start.f_animGet(ref, side, member, t, subname, prefix, loop, default)
 			if k == 1 or k == 3 then
 				usePal = t['p' .. side .. '_member' .. member .. subname .. prefix .. '_pal'] or 0
 			elseif k == 2 or k == 4 then
-				print("F")
 				usePal = t['p' .. side .. subname .. prefix .. '_pal'] or 0 
 			elseif k == 4 then
 				usePal = 0
@@ -798,6 +797,9 @@ function start.f_animGet(ref, side, member, t, subname, prefix, loop, default)
 					t['p' .. side .. subname .. '_window'][3],
 					t['p' .. side .. subname .. '_window'][4]
 				)
+				if usePal == 1 then
+					a = changeColorPalette(a, start.p[side].t_selected[member].pal)
+				end
 				animUpdate(a)
 				return a
 			end
@@ -2932,16 +2934,6 @@ function start.f_selectVersus(active, t_orderSelect)
 	main.f_fadeReset('fadein', motif.vs_screen)
 	main.f_playBGM(false, motif.music.vs_bgm, motif.music.vs_bgm_loop, motif.music.vs_bgm_volume, motif.music.vs_bgm_loopstart, motif.music.vs_bgm_loopend)
 	start.f_resetTempData(motif.vs_screen, '')
-	for side = 1, 2 do
-		for member, v in ipairs(start.p[side].t_selected) do
-			for c, v in ipairs(start.f_getCharData(start.p[side].t_selTemp[member].ref).pal_keymap) do
-				if start.p[side].t_selTemp[member].pal == c then
-					start.p[side].t_selTemp[member].anim_data = changeColorPalette(start.p[side].t_selTemp[member].anim_data, v)
-					break
-				end
-			end
-		end
-	end
 	
 	start.f_playWave(getStageNo(), 'stage', motif.vs_screen.stage_snd[1], motif.vs_screen.stage_snd[2])
 	local counter = 0 - motif.vs_screen.fadein_time
