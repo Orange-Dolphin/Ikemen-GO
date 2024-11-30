@@ -198,52 +198,79 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "animGetPreloadedData", func(l *lua.LState) int {
 		var anim *Animation
+		usePalette := boolArg(l, 6)
 		if strArg(l, 1) == "char" {
 			anim = sys.sel.GetChar(int(numArg(l, 2))).anims.get(int16(numArg(l, 3)), int16(numArg(l, 4)))
 		} else if strArg(l, 1) == "stage" {
 			anim = sys.sel.GetStage(int(numArg(l, 2))).anims.get(int16(numArg(l, 3)), int16(numArg(l, 4)))
 		}
 		if anim != nil {
-			newAnim := anim
-			if numArg(l, 6) == 1 {
-				copySff := newSff()
-				for key, value := range anim.sff.sprites {
-					copySff.sprites[key] = newSprite()
-					copySff.sprites[key].Tex = value.Tex
-					copySff.sprites[key].Offset[0] = value.Offset[0]
-					copySff.sprites[key].Offset[1] = value.Offset[1]
-					copySff.sprites[key].Size[0] = value.Size[0]
-					copySff.sprites[key].Size[1] = value.Size[1]
-					copySff.sprites[key].rle = value.rle
-					copySff.sprites[key].Group = value.Group
-					copySff.sprites[key].Number = value.Number
-					copySff.sprites[key].coldepth = value.coldepth
-					copySff.sprites[key].PalTex = value.PalTex
-					copySff.sprites[key].palidx = 0
-					if value.porPal == true{
-						copySff.sprites[key].Pal = nil
-					} else {
-						copySff.sprites[key].Pal = make([]uint32, 256)
-						x := 0
-						for x < len(value.Pal) {
-							
-							copySff.sprites[key].Pal[x] = value.Pal[x]
-							x = x + 1
-						}
-					}
-				}
-				newAnim.sff = copySff	
-			}
 			pfx := newPalFX()
 			pfx.clear()
 			pfx.time = -1
 			// TODO: palette changing depending on palette currently loaded on character
-			a := &Anim{anim: newAnim, window: sys.scrrect, xscl: 1, yscl: 1, palfx: pfx}
+			a := &Anim{anim: anim, window: sys.scrrect, xscl: 1, yscl: 1, palfx: pfx}
 			if l.GetTop() >= 5 && !boolArg(l, 5) && a.anim.totaltime == a.anim.looptime {
 				a.anim.totaltime = -1
 				a.anim.looptime = 0
 			}
-			l.Push(newUserData(l, a))
+			if usePalette == true {
+				//Copy information
+				uniqueSff := newSff()
+				uniqueSff.header = anim.sff.header
+				uniqueSff.palList.palettes = anim.sff.palList.palettes
+				x:= 0
+				uniqueSff.palList.paletteMap = nil
+				for x < len(anim.sff.palList.paletteMap) {//Copy each value from the palette map individually, without doing this, different sides/members of the same character will share palettes.
+					uniqueSff.palList.paletteMap = append(uniqueSff.palList.paletteMap, x)
+					x = x + 1
+				}
+				uniqueSff.palList.PalTable = anim.sff.palList.PalTable
+				uniqueSff.palList.numcols = anim.sff.palList.numcols
+				uniqueSff.palList.PalTex = anim.sff.palList.PalTex
+				frameAnims := ""
+				x = 0
+				for x < len(anim.frames) {
+					frameAnims = frameAnims + fmt.Sprint(anim.frames[x].Group) + "," + fmt.Sprint(anim.frames[x].Number) + "," + fmt.Sprint(a.anim.frames[x].Xoffset) + "," + fmt.Sprint(anim.frames[x].Yoffset) + "," + fmt.Sprint(anim.frames[x].Time) + "\n"
+					x = x + 1
+				}
+				
+				//Create animation and copy animation data
+				newAnim := NewAnim(uniqueSff, frameAnims)
+				newAnim.window = a.window
+				newAnim.x = a.x
+				newAnim.y = a.y
+				newAnim.xscl = a.xscl
+				newAnim.yscl = a.yscl
+				newAnim.palfx = a.palfx
+				
+				//Information to match the current frame in the animation
+				newAnim.anim.looptime = anim.looptime
+				newAnim.anim.loopstart = anim.loopstart
+				newAnim.anim.current = anim.current
+				newAnim.anim.sumtime = anim.sumtime
+				newAnim.anim.frames = anim.frames
+				newAnim.anim.interpolate_blend_srcalpha = anim.interpolate_blend_srcalpha
+				newAnim.anim.interpolate_scale = anim.interpolate_scale
+				for _, c := range a.anim.frames {
+					
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}] = newSprite()
+					if a.anim.sff.sprites[[...]int16{c.Group, c.Number}].usePal == true {
+						newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = nil
+					} else {
+						newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal
+					}
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1]
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1]
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0]
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0]
+				}
+				l.Push(newUserData(l, newAnim))
+			} else {
+				l.Push(newUserData(l, a))
+			}
 			return 1
 		}
 		return 0
