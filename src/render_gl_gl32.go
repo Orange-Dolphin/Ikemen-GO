@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"math"
 	"runtime"
-	"strings"
 	"unsafe"
 
 	gl "github.com/go-gl/gl/v3.2-core/gl"
@@ -73,16 +72,16 @@ type ShaderProgram struct {
 	t map[string]int
 }
 
-func newShaderProgram(vert, frag, geo, id string, crashWhenFail bool, directives []string) (s *ShaderProgram, err error) {
+func newShaderProgram(vert, frag, geo, id string, crashWhenFail bool) (s *ShaderProgram, err error) {
 	var vertObj, fragObj, geoObj, prog uint32
-	if vertObj, err = compileShader(gl.VERTEX_SHADER, vert, directives); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
+	if vertObj, err = compileShader(gl.VERTEX_SHADER, vert); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
 		return nil, err
 	}
-	if fragObj, err = compileShader(gl.FRAGMENT_SHADER, frag, directives); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
+	if fragObj, err = compileShader(gl.FRAGMENT_SHADER, frag); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
 		return nil, err
 	}
 	if len(geo) > 0 {
-		if geoObj, err = compileShader(gl.GEOMETRY_SHADER, geo, directives); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
+		if geoObj, err = compileShader(gl.GEOMETRY_SHADER, geo); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
 			return nil, err
 		}
 		if prog, err = linkProgram(vertObj, fragObj, geoObj); chkEX(err, "Link program error on "+id+"\n", crashWhenFail) {
@@ -118,36 +117,11 @@ func (s *ShaderProgram) RegisterTextures(names ...string) {
 	}
 }
 
-func compileShaderBatch(shaderType uint32, version string, src string, directives []string) string {
-	shader := version
-
-	// setting preprocessor directives
-	for _, directive := range directives {
-		shader += directive + "\n"
-	}
-
-	if src == fragShader {
-		shader += "vec4 get_tex(int index, sampler2D[MAX_TEXTURE_UNITS] textures, vec2 uv) {\n"
-		for i := 0; i < batchRenderer.state.maxTextures-1; i++ {
-			shader += fmt.Sprintf("\tif (index == %d) {\n", i)
-			shader += fmt.Sprintf("\t\treturn texture(textures[%d], uv);\n", i)
-			shader += "\t}\n"
-		}
-		shader += "\treturn texture(textures[0], uv);\n"
-		shader += "}\n"
-	}
-	shader += src
-	return shader
-}
-
-func compileShader(shaderType uint32, src string, directives []string) (shader uint32, err error) {
+func compileShader(shaderType uint32, src string) (shader uint32, err error) {
 	shader = gl.CreateShader(shaderType)
-	version := "#version 150\n"
-
-	shdr := compileShaderBatch(shaderType, version, src, directives) + "\x00"
-
-	s, _ := gl.Strs(shdr)
-	var l int32 = int32(len(shdr) - 1)
+	src = "#version 150\n" + src + "\x00"
+	s, _ := gl.Strs(src)
+	var l int32 = int32(len(src) - 1)
 	gl.ShaderSource(shader, 1, s, &l)
 	gl.CompileShader(shader)
 	var ok int32
@@ -217,7 +191,6 @@ type Texture struct {
 	depth  int32
 	filter bool
 	handle uint32
-	layer  int32
 }
 
 // Generate a new texture name
@@ -225,7 +198,7 @@ func newTexture(width, height, depth int32, filter bool) (t *Texture) {
 	var h uint32
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.GenTextures(1, &h)
-	t = &Texture{width: width, height: height, depth: depth, filter: filter, handle: h}
+	t = &Texture{width, height, depth, filter, h}
 	runtime.SetFinalizer(t, func(t *Texture) {
 		sys.mainThreadTask <- func() {
 			gl.DeleteTextures(1, &t.handle)
@@ -238,7 +211,7 @@ func newDataTexture(width, height int32) (t *Texture) {
 	var h uint32
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.GenTextures(1, &h)
-	t = &Texture{width: width, height: height, depth: 32, filter: false, handle: h}
+	t = &Texture{width, height, 32, false, h}
 	runtime.SetFinalizer(t, func(t *Texture) {
 		sys.mainThreadTask <- func() {
 			gl.DeleteTextures(1, &t.handle)
@@ -256,7 +229,7 @@ func newHDRTexture(width, height int32) (t *Texture) {
 	var h uint32
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.GenTextures(1, &h)
-	t = &Texture{width: width, height: height, depth: 32, filter: false, handle: h}
+	t = &Texture{width, height, 24, false, h}
 	runtime.SetFinalizer(t, func(t *Texture) {
 		sys.mainThreadTask <- func() {
 			gl.DeleteTextures(1, &t.handle)
@@ -274,7 +247,7 @@ func newCubeMapTexture(widthHeight int32, mipmap bool) (t *Texture) {
 	var h uint32
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.GenTextures(1, &h)
-	t = &Texture{width: widthHeight, height: widthHeight, depth: 32, filter: false, handle: h}
+	t = &Texture{widthHeight, widthHeight, 24, false, h}
 	runtime.SetFinalizer(t, func(t *Texture) {
 		sys.mainThreadTask <- func() {
 			gl.DeleteTextures(1, &t.handle)
@@ -310,10 +283,8 @@ func (t *Texture) SetData(data []byte) {
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	if data != nil {
 		gl.TexImage2D(gl.TEXTURE_2D, 0, int32(format), t.width, t.height, 0, format, gl.UNSIGNED_BYTE, unsafe.Pointer(&data[0]))
-		//gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.width, t.height, format, gl.UNSIGNED_BYTE, unsafe.Pointer(&data[0]))
 	} else {
 		gl.TexImage2D(gl.TEXTURE_2D, 0, int32(format), t.width, t.height, 0, format, gl.UNSIGNED_BYTE, nil)
-		// gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.width, t.height, format, gl.UNSIGNED_BYTE, nil)
 	}
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, interp)
@@ -339,27 +310,11 @@ func (t *Texture) SetPixelData(data []float32) {
 	gl.BindTexture(gl.TEXTURE_2D, t.handle)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, t.width, t.height, 0, gl.RGBA, gl.FLOAT, unsafe.Pointer(&data[0]))
-	// gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.width, t.height, gl.RGBA, gl.UNSIGNED_BYTE, unsafe.Pointer(&data[0]))
 }
-
 func (t *Texture) SetRGBPixelData(data []float32) {
 	gl.BindTexture(gl.TEXTURE_2D, t.handle)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB32F, t.width, t.height, 0, gl.RGB, gl.FLOAT, unsafe.Pointer(&data[0]))
-}
-
-func newTextureLayer(width, height, depth, layer int32, filter bool) (t *Texture) {
-	t = &Texture{width: width, height: height, depth: depth, filter: filter, layer: layer}
-	return
-}
-
-func (t *Texture) SetDataArray(layer int32, array uint32, data []byte) {
-	format := InternalFormatLUT[Max(t.depth, 8)]
-	gl.BindTexture(gl.TEXTURE_2D_ARRAY, array)
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	if array == batchRenderer.paletteTex {
-		gl.TexSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, 256, 1, 1, format, gl.UNSIGNED_BYTE, unsafe.Pointer(&data[0]))
-	}
 }
 
 // Return whether texture has a valid handle
@@ -402,10 +357,10 @@ type Renderer struct {
 	enableShadow bool
 }
 
-//go:embed shaders/sprite_g32.vert.glsl
+//go:embed shaders/sprite.vert.glsl
 var vertShader string
 
-//go:embed shaders/sprite_g32.frag.glsl
+//go:embed shaders/sprite.frag.glsl
 var fragShader string
 
 //go:embed shaders/model.vert.glsl
@@ -439,9 +394,9 @@ var cubemapFilteringFragShader string
 func (r *Renderer) InitModelShader() error {
 	var err error
 	if r.enableShadow {
-		r.modelShader, err = newShaderProgram(modelVertShader, "#define ENABLE_SHADOW\n"+modelFragShader, "", "Model Shader", false, nil)
+		r.modelShader, err = newShaderProgram(modelVertShader, "#define ENABLE_SHADOW\n"+modelFragShader, "", "Model Shader", false)
 	} else {
-		r.modelShader, err = newShaderProgram(modelVertShader, modelFragShader, "", "Model Shader", false, nil)
+		r.modelShader, err = newShaderProgram(modelVertShader, modelFragShader, "", "Model Shader", false)
 	}
 	if err != nil {
 		return err
@@ -461,7 +416,7 @@ func (r *Renderer) InitModelShader() error {
 		"shadowMap", "shadowCubeMap")
 
 	if r.enableShadow {
-		r.shadowMapShader, err = newShaderProgram(shadowVertShader, shadowFragShader, shadowGeoShader, "Shadow Map Shader", false, nil)
+		r.shadowMapShader, err = newShaderProgram(shadowVertShader, shadowFragShader, shadowGeoShader, "Shadow Map Shader", false)
 		if err != nil {
 			return err
 		}
@@ -469,7 +424,7 @@ func (r *Renderer) InitModelShader() error {
 		r.shadowMapShader.RegisterUniforms("model", "lightMatrices[0]", "lightMatrices[1]", "lightMatrices[2]", "lightMatrices[3]", "lightMatrices[4]", "lightMatrices[5]", "lightType", "lightPos", "farPlane", "numJoints", "morphTargetWeight", "morphTargetOffset", "morphTargetTextureDimension", "numTargets", "numVertices", "layerOffset", "enableAlpha", "alphaThreshold", "baseColorFactor", "useTexture")
 		r.shadowMapShader.RegisterTextures("morphTargetValues", "jointMatrices", "tex")
 	}
-	r.panoramaToCubeMapShader, err = newShaderProgram(identVertShader, panoramaToCubeMapFragShader, "", "Panorama To Cubemap Shader", false, nil)
+	r.panoramaToCubeMapShader, err = newShaderProgram(identVertShader, panoramaToCubeMapFragShader, "", "Panorama To Cubemap Shader", false)
 	if err != nil {
 		return err
 	}
@@ -477,7 +432,7 @@ func (r *Renderer) InitModelShader() error {
 	r.panoramaToCubeMapShader.RegisterUniforms("currentFace")
 	r.panoramaToCubeMapShader.RegisterTextures("panorama")
 
-	r.cubemapFilteringShader, err = newShaderProgram(identVertShader, cubemapFilteringFragShader, "", "Cubemap Filtering Shader", false, nil)
+	r.cubemapFilteringShader, err = newShaderProgram(identVertShader, cubemapFilteringFragShader, "", "Cubemap Filtering Shader", false)
 	if err != nil {
 		return err
 	}
@@ -487,27 +442,11 @@ func (r *Renderer) InitModelShader() error {
 	return nil
 }
 
-func (r *Renderer) SupportsBatching() bool {
-	return !(strings.Contains(gl.GoStr(gl.GetString(gl.VERSION)), "2.1"))
-}
-
-func GLDebugCallback(source uint32, gltype uint32, id uint32,
-	severity uint32, length int32, message string, userParam unsafe.Pointer) {
-	if gltype == gl.DEBUG_TYPE_ERROR {
-		fmt.Println(fmt.Sprintf("GL CALLBACK: GL_ERROR type = 0x%x, severity = 0x%x, message = %s\n", gltype, severity, message))
-	}
-}
-
 // Render initialization.
 // Creates the default shaders, the framebuffer and enables MSAA.
 func (r *Renderer) Init() {
 	chk(gl.Init())
 	sys.errLog.Printf("Using OpenGL %v (%v)", gl.GoStr(gl.GetString(gl.VERSION)), gl.GoStr(gl.GetString(gl.RENDERER)))
-
-	if sys.debugGL {
-		gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
-		gl.DebugMessageCallback(GLDebugCallback, nil)
-	}
 
 	// Store current timestamp
 	sys.prevTimestamp = glfw.GetTime()
@@ -523,24 +462,21 @@ func (r *Renderer) Init() {
 	gl.GenVertexArrays(1, &r.vao)
 	gl.BindVertexArray(r.vao)
 
-	r.InitBatchRenderState()
-
 	gl.GenBuffers(1, &r.postVertBuffer)
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.postVertBuffer)
 	gl.BufferData(gl.ARRAY_BUFFER, len(postVertData), unsafe.Pointer(&postVertData[0]), gl.STATIC_DRAW)
 
 	gl.GenBuffers(1, &r.vertexBuffer)
-
-	r.InitBatchRendererBuffers()
-
 	gl.GenBuffers(1, &r.stageVertexBuffer)
 	gl.GenBuffers(1, &r.stageIndexBuffer)
 
 	// Sprite shader
-	r.InitBatchSpriteShader()
-
-	r.InitUBOs()
+	r.spriteShader, _ = newShaderProgram(vertShader, fragShader, "", "Main Shader", true)
+	r.spriteShader.RegisterAttributes("position", "uv")
+	r.spriteShader.RegisterUniforms("modelview", "projection", "x1x2x4x3",
+		"alpha", "tint", "mask", "neg", "gray", "add", "mult", "isFlat", "isRgba", "isTrapez", "hue")
+	r.spriteShader.RegisterTextures("pal", "tex")
 
 	if r.enableModel {
 		if err := r.InitModelShader(); err != nil {
@@ -554,14 +490,14 @@ func (r *Renderer) Init() {
 	r.postShaderSelect = make([]*ShaderProgram, 1+len(sys.externalShaderList))
 
 	// Ident shader (no postprocessing)
-	r.postShaderSelect[0], _ = newShaderProgram(identVertShader, identFragShader, "", "Identity Postprocess", true, nil)
+	r.postShaderSelect[0], _ = newShaderProgram(identVertShader, identFragShader, "", "Identity Postprocess", true)
 	r.postShaderSelect[0].RegisterAttributes("VertCoord", "TexCoord")
 	r.postShaderSelect[0].RegisterUniforms("Texture", "TextureSize", "CurrentTime")
 
 	// External Shaders
 	for i := 0; i < len(sys.externalShaderList); i++ {
 		r.postShaderSelect[1+i], _ = newShaderProgram(sys.externalShaders[0][i],
-			sys.externalShaders[1][i], "", fmt.Sprintf("Postprocess Shader #%v", i+1), true, nil)
+			sys.externalShaders[1][i], "", fmt.Sprintf("Postprocess Shader #%v", i+1), true)
 		r.postShaderSelect[1+i].RegisterAttributes("VertCoord", "TexCoord")
 		loc := r.postShaderSelect[0].a["TexCoord"]
 		gl.VertexAttribPointer(uint32(loc), 3, gl.FLOAT, false, 5*4, gl.PtrOffset(2*4))
@@ -595,8 +531,6 @@ func (r *Renderer) Init() {
 	}
 
 	gl.BindTexture(gl.TEXTURE_2D, 0)
-
-	r.InitPaletteTextureArray()
 
 	//r.rbo_depth = gl.CreateRenderbuffer()
 	gl.GenRenderbuffers(1, &r.rbo_depth)
@@ -737,9 +671,10 @@ func (r *Renderer) EndFrame() {
 
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 	gl.DisableVertexAttribArray(uint32(loc))
+}
 
-	// r.SwitchBuffer()
-	//gl.BindVertexArray(0)
+func (r *Renderer) Await() {
+	gl.Finish()
 }
 
 func (r *Renderer) SetPipeline(eq BlendEquation, src, dst BlendFunc) {
@@ -749,9 +684,6 @@ func (r *Renderer) SetPipeline(eq BlendEquation, src, dst BlendFunc) {
 	gl.BlendEquation(BlendEquationLUT[eq])
 	gl.BlendFunc(BlendFunctionLUT[src], BlendFunctionLUT[dst])
 	gl.Enable(gl.BLEND)
-
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
 
 	// Must bind buffer before enabling attributes
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.vertexBuffer)
@@ -769,7 +701,6 @@ func (r *Renderer) ReleasePipeline() {
 	loc = r.spriteShader.a["uv"]
 	gl.DisableVertexAttribArray(uint32(loc))
 	gl.Disable(gl.BLEND)
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 }
 
 func (r *Renderer) prepareShadowMapPipeline() {
@@ -1248,6 +1179,11 @@ func (r *Renderer) SetShadowFrameCubeTexture(i uint32) {
 	//gl.Clear(gl.DEPTH_BUFFER_BIT)
 }
 
+func (r *Renderer) SetVertexData(values ...float32) {
+	data := f32.Bytes(binary.LittleEndian, values...)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.vertexBuffer)
+	gl.BufferData(gl.ARRAY_BUFFER, len(data), unsafe.Pointer(&data[0]), gl.STATIC_DRAW)
+}
 func (r *Renderer) SetStageVertexData(values []byte) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.stageVertexBuffer)
 	gl.BufferData(gl.ARRAY_BUFFER, len(values), unsafe.Pointer(&values[0]), gl.STATIC_DRAW)
@@ -1368,198 +1304,4 @@ func (r *Renderer) RenderLUT(distribution int32, cubeTexture *Texture, lutTextur
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, r.fbo)
-}
-
-func (r *Renderer) InitBatchRenderState() {
-	batchRenderer.setInitialUniforms = true
-	// Check the maximum number of texture units
-	gl.GetIntegerv(gl.MAX_TEXTURE_IMAGE_UNITS, &batchRenderer.maxTextureUnits)
-	batchRenderer.state.maxTextures = int(batchRenderer.maxTextureUnits)
-	batchRenderer.vertexBufferCache = make(map[uint64]uint32)
-
-}
-
-func (r *Renderer) InitBatchRendererBuffers() {
-	gl.GenBuffers(1, &batchRenderer.vertexBuffer2)
-	batchRenderer.curVertexBuffer = r.vertexBuffer
-
-	gl.GenBuffers(1, &batchRenderer.fragUbo)
-	gl.BindBuffer(gl.UNIFORM_BUFFER, batchRenderer.fragUbo)
-	gl.BufferData(gl.UNIFORM_BUFFER, int(64*96), nil, gl.STATIC_DRAW)
-
-	gl.GenBuffers(1, &batchRenderer.vertUbo)
-	gl.BindBuffer(gl.UNIFORM_BUFFER, batchRenderer.vertUbo)
-	gl.BufferData(gl.UNIFORM_BUFFER, int(32*unsafe.Sizeof(VertexUniforms{})), nil, gl.STATIC_DRAW)
-
-	gl.GenBuffers(1, &batchRenderer.indexUbo)
-	gl.BindBuffer(gl.UNIFORM_BUFFER, batchRenderer.indexUbo)
-	gl.BufferData(gl.UNIFORM_BUFFER, int(4096*4), nil, gl.STATIC_DRAW)
-
-}
-
-func (r *Renderer) SetVertexData(values ...float32) {
-	data := batchF32Encode(values)
-	gl.BindBuffer(gl.ARRAY_BUFFER, batchRenderer.curVertexBuffer)
-	gl.BufferData(gl.ARRAY_BUFFER, len(data), unsafe.Pointer(&data[0]), gl.STATIC_DRAW)
-}
-
-func (r *Renderer) SetTextureArrayWithHandle(name string, handle uint32) {
-	loc, _ := r.spriteShader.u[name], r.spriteShader.t[name]
-	gl.ActiveTexture((uint32(gl.TEXTURE16)))
-	gl.BindTexture(gl.TEXTURE_2D_ARRAY, handle)
-	gl.Uniform1i(loc, 16)
-}
-
-func (r *Renderer) SetTextureWithHandle(name string, handle uint32) {
-	loc, unit := r.spriteShader.u[name], r.spriteShader.t[name]
-	gl.ActiveTexture((uint32(gl.TEXTURE0 + unit)))
-	gl.BindTexture(gl.TEXTURE_2D, handle)
-	gl.Uniform1i(loc, int32(unit))
-}
-
-func (r *Renderer) SetTextures(name string, handles []uint32) []int32 {
-	loc, unit := r.spriteShader.u[name], r.spriteShader.t[name]
-	indices := make([]int32, len(handles))
-	for i := 0; i < len(handles); i++ {
-		gl.ActiveTexture((uint32(gl.TEXTURE0 + unit + i)))
-		gl.BindTexture(gl.TEXTURE_2D, handles[i])
-		indices[i] = int32(unit + i)
-		gl.Uniform1i(loc, int32(unit+i))
-	}
-	return indices
-}
-
-func (r *Renderer) UnbindTextures(name []string) {
-	for i := 0; i < len(name); i++ {
-		_, unit := r.spriteShader.u[name[i]], r.spriteShader.t[name[i]]
-		gl.ActiveTexture((uint32(gl.TEXTURE0 + unit)))
-		gl.BindTexture(gl.TEXTURE_2D, 0)
-	}
-}
-
-func (r *Renderer) RenderQuadAtIndex(vertex int32) {
-	gl.DrawArrays(gl.TRIANGLE_STRIP, vertex, 4)
-}
-
-func (r *Renderer) RenderQuadBatch(total int32) {
-	gl.DrawArrays(gl.TRIANGLES, 0, total)
-}
-
-func (r *Renderer) RenderQuadBatchAtIndex(first int32, count int32) {
-	gl.DrawArrays(gl.TRIANGLES, first, count)
-}
-
-func (r *Renderer) SwitchBuffer() {
-	if batchRenderer.curVertexBuffer == gfx.vertexBuffer {
-		batchRenderer.curVertexBuffer = batchRenderer.vertexBuffer2
-	} else {
-		batchRenderer.curVertexBuffer = gfx.vertexBuffer
-	}
-}
-
-func (r *Renderer) UploadFragmentUBO(uniforms []FragmentUniforms) {
-	buf := make([]byte, 0, 96*len(uniforms))
-	for i := 0; i < len(uniforms); i++ {
-		buf = append(buf, uniforms[i].ToBytes()...)
-	}
-
-	gl.BindBuffer(gl.UNIFORM_BUFFER, batchRenderer.fragUbo)
-	gl.BufferSubData(gl.UNIFORM_BUFFER, 0, len(buf), unsafe.Pointer(&buf[0]))
-}
-
-func (r *Renderer) UploadVertexUBO(uniforms []VertexUniforms) {
-	buf := make([]byte, 0, int(unsafe.Sizeof(VertexUniforms{}))*len(uniforms))
-	for i := 0; i < len(uniforms); i++ {
-		buf = append(buf, uniforms[i].ToBytes()...)
-	}
-
-	gl.BindBuffer(gl.UNIFORM_BUFFER, batchRenderer.vertUbo)
-	gl.BufferSubData(gl.UNIFORM_BUFFER, 0, len(buf), unsafe.Pointer(&buf[0]))
-}
-
-func (r *Renderer) UploadIndexUniformUBO(uniforms []IndexUniforms) {
-	buf := make([]byte, 0, int(4)*len(uniforms))
-	for i := 0; i < len(uniforms); i++ {
-		buf = append(buf, uniforms[i].ToBytes()...)
-	}
-
-	gl.BindBuffer(gl.UNIFORM_BUFFER, batchRenderer.indexUbo)
-	gl.BufferSubData(gl.UNIFORM_BUFFER, 0, len(buf), unsafe.Pointer(&buf[0]))
-}
-
-func (r *Renderer) BindUBOs() {
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, batchRenderer.fragUbo)
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, 1, batchRenderer.vertUbo)
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, 2, batchRenderer.indexUbo)
-}
-
-func (r *Renderer) InitPaletteTextureArray() {
-	gl.ActiveTexture(gl.TEXTURE16)
-	gl.GenTextures(1, &batchRenderer.paletteTex)
-	gl.BindTexture(gl.TEXTURE_2D_ARRAY, batchRenderer.paletteTex)
-	gl.TexImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA, 256, 1, 512, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
-
-	gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.BindTexture(gl.TEXTURE_2D_ARRAY, 0)
-
-}
-
-func (r *Renderer) InitUBOs() {
-	var bindingPoint uint32 = 0
-	blockIndex := gl.GetUniformBlockIndex(r.spriteShader.program, glStr("FragmentUniformBlock"))
-	gl.UniformBlockBinding(r.spriteShader.program, blockIndex, bindingPoint)
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, batchRenderer.fragUbo)
-	bindingPoint++
-
-	blockIndex = gl.GetUniformBlockIndex(r.spriteShader.program, glStr("VertexUniformBlock"))
-	gl.UniformBlockBinding(r.spriteShader.program, blockIndex, bindingPoint)
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, batchRenderer.vertUbo)
-	bindingPoint++
-
-	blockIndex = gl.GetUniformBlockIndex(r.spriteShader.program, glStr("IndexUniformBlock"))
-	gl.UniformBlockBinding(r.spriteShader.program, blockIndex, bindingPoint)
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, batchRenderer.indexUbo)
-}
-
-func (r *Renderer) InitBatchSpriteShader() {
-	directives := []string{"#define MAX_TEXTURE_UNITS " + fmt.Sprintf("%d", batchRenderer.maxTextureUnits-1)}
-	r.spriteShader, _ = newShaderProgram(vertShader, fragShader, "", "Main Shader", true, directives)
-	r.spriteShader.RegisterAttributes("position", "uv")
-
-	str := []string{"palArray"}
-	for i := 0; i < int(batchRenderer.maxTextureUnits)-1; i++ {
-		str = append(str, fmt.Sprintf("tex[%d]", i))
-	}
-	r.spriteShader.RegisterTextures(str...)
-
-}
-
-func RenderSpriteHelper(rp RenderParams) {
-	CalculateRenderData(rp)
-}
-
-func FillRectHelper(rect [4]int32, color uint32, trans int32) {
-	CalculateRectData(rect, color, trans)
-}
-
-func PaletteToTextureHelper(pal []uint32) *Texture {
-	return PaletteToTextureBatch(pal)
-}
-
-func DrawTtfHelper(ttf *TtfFont) {
-	BatchParam(&RenderUniformData{isTTF: true, seqNo: batchRenderer.state.curSDRSeqNo, ttf: ttf})
-	batchRenderer.state.curSDRSeqNo++
-}
-
-func RenderHelper() {
-	BatchRender()
-}
-
-func RenderCacheResetHelper() {
-	batchRenderer.palTexCache = make(map[uint64]*Texture)
-	batchRenderer.vertexBufferCache = make(map[uint64]uint32)
-	batchRenderer.setInitialUniforms = true
 }

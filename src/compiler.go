@@ -2164,8 +2164,9 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		if err := c.checkOpeningBracket(in); err != nil {
 			return bvNone(), err
 		}
-		isFlag := 0
+		isFlag := -1
 		switch c.token {
+		// no-op triggers
 		case "xveladd":
 			bv.SetF(0)
 		case "yveladd":
@@ -2173,6 +2174,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		case "fall.envshake.dir":
 			bv.SetI(0)
 		default:
+			// triggers that do things
+			isFlag = 0
 			switch c.token {
 			case "animtype":
 				opc = OC_ex_gethitvar_animtype
@@ -2363,10 +2366,11 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			if err := eqne(hgf); err != nil {
 				return bvNone(), err
 			}
-		default:
+		case 0:
 			// no flag
 			out.append(OC_ex_, opc)
 		}
+		// no-op (for y/xveladd and fall.envshake.dir)
 	case "groundlevel":
 		out.append(OC_ex_, OC_ex_groundlevel)
 	case "guardcount":

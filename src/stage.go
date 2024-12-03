@@ -773,7 +773,7 @@ func newStage(def string) *Stage {
 		bgmfreqmul:     1, // Fallback value to allow music to play on legacy stages without a bgmfreqmul parameter
 	}
 	s.sdw.intensity = 128
-	s.sdw.color = 0x808080
+	s.sdw.color = 0x000000 // https://github.com/ikemen-engine/Ikemen-GO/issues/2150
 	s.reflection.color = 0xFFFFFF
 	s.sdw.yscale = 0.4
 	s.p[0].startx = -70

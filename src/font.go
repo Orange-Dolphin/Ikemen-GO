@@ -19,8 +19,6 @@ type TtfFont interface {
 	SetColor(red float32, green float32, blue float32, alpha float32)
 	Width(scale float32, fs string, argv ...interface{}) float32
 	Printf(x, y float32, scale float32, align int32, blend bool, window [4]int32, fs string, argv ...interface{}) error
-	PrintBatch() bool
-	SetBatchMode(batchMode bool)
 }
 
 // Fnt is a interface for basic font information
@@ -465,7 +463,7 @@ func (f *Fnt) drawChar(
 	rp.x = -x * sys.widthScale
 	rp.y = -y * sys.heightScale
 
-	RenderSpriteHelper(rp)
+	RenderSprite(rp)
 	return float32(spr.Size[0]) * xscl
 }
 
@@ -569,7 +567,6 @@ func (f *Fnt) DrawTtf(txt string, x, y, xscl, yscl float32, align int32,
 
 	f.ttf.SetColor(frgba[0], frgba[1], frgba[2], frgba[3])
 	f.ttf.Printf(x, y, (xscl+yscl)/2, align, blend, win, "%s", txt) //x, y, scale, align, blend, window, string, printf args
-	DrawTtfHelper(&f.ttf)
 }
 
 type TextSprite struct {

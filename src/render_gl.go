@@ -13,7 +13,6 @@ import (
 	"math"
 	"runtime"
 	"strconv"
-	"strings"
 	"unsafe"
 
 	gl "github.com/go-gl/gl/v2.1/gl"
@@ -443,10 +442,6 @@ func (r *Renderer) InitModelShader() error {
 	return nil
 }
 
-func (r *Renderer) SupportsBatching() bool {
-	return !(strings.Contains(gl.GoStr(gl.GetString(gl.VERSION)), "2.1"))
-}
-
 // Render initialization.
 // Creates the default shaders, the framebuffer and enables MSAA.
 func (r *Renderer) Init() {
@@ -669,6 +664,10 @@ func (r *Renderer) EndFrame() {
 
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 	gl.DisableVertexAttribArray(uint32(loc))
+}
+
+func (r *Renderer) Await() {
+	gl.Finish()
 }
 
 func (r *Renderer) SetPipeline(eq BlendEquation, src, dst BlendFunc) {
@@ -1293,27 +1292,4 @@ func (r *Renderer) RenderLUT(distribution int32, cubeTexture *Texture, lutTextur
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, r.fbo)
-}
-
-func RenderSpriteHelper(rp RenderParams) {
-	RenderSprite(rp)
-}
-
-func FillRectHelper(rect [4]int32, color uint32, trans int32) {
-	FillRect(rect, color, trans)
-}
-
-func PaletteToTextureHelper(pal []uint32) *Texture {
-	return PaletteToTexture(pal)
-}
-
-// stubs
-func DrawTtfHelper(ttf *TtfFont) {
-	return
-}
-func RenderHelper() {
-	return
-}
-func RenderCacheResetHelper() {
-	return
 }

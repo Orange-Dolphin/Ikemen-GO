@@ -123,7 +123,6 @@ type System struct {
 	turnsRecoveryRate       float32
 	debugFont               *TextSprite
 	debugDraw               bool
-	debugGL                 bool
 	debugRef                [2]int // player number, helper index
 	soundMixer              *beep.Mixer
 	bgm                     Bgm
@@ -578,7 +577,6 @@ func (s *System) runMainThreadTask() {
 
 func (s *System) await(fps int) bool {
 	if !s.frameSkip {
-		RenderHelper()
 		// Render the finished frame
 		gfx.EndFrame()
 		s.window.SwapBuffers()
@@ -675,7 +673,6 @@ func (s *System) resetRemapInput() {
 }
 func (s *System) loaderReset() {
 	s.round, s.wins, s.roundsExisted, s.roundType = 1, [2]int32{}, [2]int32{}, [2]RoundType{}
-	RenderCacheResetHelper()
 	s.loader.reset()
 }
 func (s *System) loadStart() {
@@ -1815,16 +1812,16 @@ func (s *System) draw(x, y, scl float32) {
 				}
 				c = uint32(rgb[2] | rgb[1]<<8 | rgb[0]<<16)
 			}
-			FillRectHelper(s.scrrect, c, 0xff)
+			FillRect(s.scrrect, c, 0xff)
 		}
 
 		// Draw normal stage background fill and elements with layerNo == -1
 		if !s.gsf(GSF_nobg) {
 			if s.stage.debugbg {
-				FillRectHelper(s.scrrect, 0xff00ff, 0xff)
+				FillRect(s.scrrect, 0xff00ff, 0xff)
 			} else {
 				c = uint32(s.stage.bgclearcolor[2]&0xff | s.stage.bgclearcolor[1]&0xff<<8 | s.stage.bgclearcolor[0]&0xff<<16)
-				FillRectHelper(s.scrrect, c, 0xff)
+				FillRect(s.scrrect, c, 0xff)
 			}
 			if s.stage.ikemenver[0] != 0 || s.stage.ikemenver[1] != 0 { // This layer did not render in Mugen
 				s.stage.draw(-1, bgx, bgy, scl)
@@ -1899,7 +1896,7 @@ func (s *System) draw(x, y, scl float32) {
 	}
 	// Draw EnvColor effect
 	if s.envcol_time != 0 {
-		FillRectHelper(s.scrrect, ecol, 255)
+		FillRect(s.scrrect, ecol, 255)
 	}
 
 	// Draw character sprites in layer 0
@@ -1923,7 +1920,7 @@ func (s *System) draw(x, y, scl float32) {
 func (s *System) drawTop() {
 	BlendReset()
 	fade := func(rect [4]int32, color uint32, alpha int32) {
-		FillRectHelper(rect, color, alpha>>uint(Btoi(s.clsnDraw))+Btoi(s.clsnDraw)*128)
+		FillRect(rect, color, alpha>>uint(Btoi(s.clsnDraw))+Btoi(s.clsnDraw)*128)
 	}
 	fadeout := s.intro + s.lifebar.ro.over_waittime + s.lifebar.ro.over_time
 	if fadeout == s.lifebar.ro.fadeout_time-1 && len(s.commonLua) > 0 && s.matchOver() && !s.dialogueFlg {
@@ -2338,6 +2335,8 @@ func (s *System) fight() (reload bool) {
 		s.nextRound()
 		s.roundResetFlg, s.introSkipped = false, false
 		s.reloadFlg, s.reloadStageFlg, s.reloadLifebarFlg = false, false, false
+		s.runMainThreadTask()
+		gfx.Await()
 	}
 	reset()
 

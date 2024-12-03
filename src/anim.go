@@ -765,7 +765,7 @@ func (a *Animation) Draw(window *[4]int32, x, y, xcs, ycs, xs, xbs, ys,
 		yOffset:        yoff * sys.heightScale,
 	}
 
-	RenderSpriteHelper(rp)
+	RenderSprite(rp)
 }
 
 func (a *Animation) ShadowDraw(window *[4]int32, x, y, xscl, yscl, vscl, rxadd float32, rot Rotation,
@@ -853,17 +853,17 @@ func (a *Animation) ShadowDraw(window *[4]int32, x, y, xscl, yscl, vscl, rxadd f
 					paltemp = a.spr.GetPal(&a.sff.palList)
 				}
 			}
-			rp.paltex = PaletteToTextureHelper(paltemp[:])
+			rp.paltex = PaletteToTexture(paltemp[:])
 		}
 	}
 
 	if color != 0 {
 		rp.trans = -2
-		RenderSpriteHelper(rp)
+		RenderSprite(rp)
 	}
 	if alpha > 0 {
 		rp.trans = (256-alpha)<<10 | 1<<9
-		RenderSpriteHelper(rp)
+		RenderSprite(rp)
 	}
 }
 

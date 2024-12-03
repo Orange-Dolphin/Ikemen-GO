@@ -184,8 +184,7 @@ func (cr *ClsnRect) Add(clsn []float32, x, y, xs, ys, angle float32) {
 	}
 }
 func (cr ClsnRect) draw(trans int32) {
-	paltex := PaletteToTextureHelper(sys.clsnSpr.Pal)
-
+	paltex := PaletteToTexture(sys.clsnSpr.Pal)
 	for _, c := range cr {
 		params := RenderParams{
 			sys.clsnSpr.Tex, paltex, sys.clsnSpr.Size,
@@ -193,7 +192,7 @@ func (cr ClsnRect) draw(trans int32) {
 			c[2] * sys.widthScale, c[2] * sys.widthScale, c[3] * sys.heightScale, 1, 0,
 			1, 1, Rotation{c[6], 0, 0}, 0, trans, -1, nil, &sys.scrrect, c[4], c[5], 0, 0, 0, 0,
 		}
-		RenderSpriteHelper(params)
+		RenderSprite(params)
 	}
 
 }
@@ -3236,7 +3235,7 @@ func (c *Char) loadPalette() {
 					}
 					gi.palExist[i] = true
 					// Palette Texture Generation
-					gi.palettedata.palList.PalTex[i] = PaletteToTextureHelper(pl)
+					gi.palettedata.palList.PalTex[i] = PaletteToTexture(pl)
 					tmp = i + 1
 				}
 			}

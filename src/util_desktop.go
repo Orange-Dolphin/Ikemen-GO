@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/assemblaj/glfont"
 	findfont "github.com/flopp/go-findfont"
+	"github.com/ikemen-engine/glfont"
 	"github.com/sqweek/dialog"
 )
 
@@ -48,11 +48,7 @@ func LoadFntTtf(f *Fnt, fontfile string, filename string, height int32) {
 	if err != nil {
 		panic(err)
 	}
-
 	f.ttf = ttf
-	if gfx.SupportsBatching() {
-		f.ttf.SetBatchMode(true)
-	}
 
 	// Create Ttf dummy palettes
 	f.palettes = make([][256]uint32, 1)
