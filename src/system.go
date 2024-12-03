@@ -2675,6 +2675,7 @@ type SelectChar struct {
 	ratiopath      string
 	movelist       string
 	pal            []int32
+	palfiles       []string
 	pal_defaults   []int32
 	pal_keymap     []int32
 	localcoord     int32
@@ -2871,6 +2872,7 @@ func (s *Select) addChar(def string) {
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
+						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
 					}
 				}
 				movelist = is["movelist"]
@@ -2890,6 +2892,7 @@ func (s *Select) addChar(def string) {
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
+						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
 					}
 				}
 				movelist = is["movelist"]
