@@ -798,7 +798,9 @@ function start.f_animGet(ref, side, member, t, subname, prefix, loop, default)
 					t['p' .. side .. subname .. '_window'][4]
 				)
 				if usePal == 1 then
-					a = changeColorPalette(a, start.p[side].t_selected[member].pal)
+					if start.p[side] ~= nil and start.p[side].t_selected[member] ~= nil and start.p[side].t_selected[member].pal ~= nil then
+						a = changeColorPalette(a, start.p[side].t_selected[member].pal)
+					end
 				end
 				animUpdate(a)
 				return a
