@@ -92,7 +92,7 @@ var sys = System{
 	audioSampleRate:      44100,
 	enableModel:          true,
 	enableModelShadow:    true,
-	NaxPals:			  12,
+	MaxPals:			  12,
 }
 
 type TeamMode int32
