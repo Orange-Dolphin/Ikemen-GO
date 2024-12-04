@@ -2153,7 +2153,7 @@ func systemScriptInit(l *lua.LState) {
 			l.RaiseError("%v\nInvalid team side: %v\n", sys.sel.GetChar(cn).def, tn)
 		}
 		pl := int(numArg(l, 3))
-		if pl < 1 || pl > MaxPalNo {
+		if pl < 1 || pl > sys.MaxPals {
 			l.RaiseError("%v\nInvalid palette: %v\n", sys.sel.GetChar(cn).def, pl)
 		}
 		var ret int
@@ -2236,6 +2236,10 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "selfState", func(*lua.LState) int {
 		sys.debugWC.selfState(int32(numArg(l, 1)), -1, -1, 1, "")
+		return 0
+	})
+	luaRegister(l, "usePalette", func(l *lua.LState) int {
+		sys.usePalette = boolArg(l, 1)
 		return 0
 	})
 	luaRegister(l, "setAccel", func(*lua.LState) int {
