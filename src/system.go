@@ -92,6 +92,7 @@ var sys = System{
 	audioSampleRate:      44100,
 	enableModel:          true,
 	enableModelShadow:    true,
+	NaxPals:			  12,
 }
 
 type TeamMode int32
@@ -289,6 +290,8 @@ type System struct {
 	windowTitle             string
 	screenshotFolder        string
 	audioSampleRate         int32
+	usePalette				bool
+	MaxPals					int
 	//FLAC_FrameWait          int
 
 	// Common Files
@@ -2869,7 +2872,7 @@ func (s *Select) addChar(def string) {
 				sprite = is["sprite"]
 				anim = is["anim"]
 				sc.sound = is["sound"]
-				for i := 1; i <= MaxPalNo; i++ {
+				for i := 1; i <= sys.MaxPals; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
 						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
@@ -2889,7 +2892,7 @@ func (s *Select) addChar(def string) {
 				sprite = is["sprite"]
 				anim = is["anim"]
 				sc.sound = is["sound"]
-				for i := 1; i <= MaxPalNo; i++ {
+				for i := 1; i <= sys.MaxPals; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
 						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
