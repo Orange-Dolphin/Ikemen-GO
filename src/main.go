@@ -250,6 +250,7 @@ type configSettings struct {
 	MaxDrawGames               int32
 	MaxExplod                  int
 	MaxHelper                  int32
+	MaxPals	 				   int
 	MaxPlayerProjectile        int
 	Modules                    []string
 	Motif                      string
@@ -411,6 +412,7 @@ func setupConfig() configSettings {
 		tmp.MSAA = 0
 	}
 	sys.multisampleAntialiasing = tmp.MSAA
+	sys.MaxPals = tmp.MaxPals
 	sys.pauseMasterVolume = tmp.PauseMasterVolume
 	sys.panningRange = tmp.PanningRange
 	sys.playerProjectileMax = tmp.MaxPlayerProjectile
