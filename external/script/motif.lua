@@ -2724,6 +2724,30 @@ for k, v in pairs(motif) do
 	end
 end
 
+usingPalettes = false
+for i = 1, 3 do
+	if i == 1 then
+		currentSection = 'select_info'
+	elseif i == 2 then
+		currentSection = 'vs_screen'
+	elseif i == 3 then
+		currentSection = 'victory_screen'
+	end
+	for side = 1, 2 do
+		if motif[currentSection]['p' .. side .. '_pal'] == 1 or motif[currentSection]['p' .. side .. '_face_pal'] == 1 or motif[currentSection]['p' .. side .. '_face2_pal'] == 1 then
+			usingPalettes = true
+		end
+		for member = 1, 4 do
+			if motif[currentSection]['p' .. side .. '_member' .. member .. '_face_pal'] == 1 or motif[currentSection]['p' .. side .. '_member' .. member .. '_face2_pal'] == 1 then
+				usingPalettes = true
+			end
+		end
+	end
+end
+if usingPalettes == true then
+	usePalette(true)
+end
+
 local t_pos = motif.select_info
 for _, v in ipairs({
 	{s = 'cell_bg_',                      x = 0,                                                           y = 0},
