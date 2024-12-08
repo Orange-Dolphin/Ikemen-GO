@@ -194,6 +194,8 @@ func (c *Compiler) assertSpecial(is IniSection, sc *StateControllerBase, _ int8)
 				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_nomakedust)))
 			case "noguardko":
 				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_noguardko)))
+			case "nokofall":
+				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_nokofall)))
 			case "nokovelocity":
 				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_nokovelocity)))
 			case "noailevel":
@@ -1554,16 +1556,16 @@ func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 		if err != nil {
 			return err
 		}
-		at := AT_Hit
+		at := TT_Hit
 		data = strings.TrimSpace(data)
 		if c.token == "," && len(data) > 0 {
 			switch data[0] {
 			case 'H', 'h':
-				at = AT_Hit
+				at = TT_Hit
 			case 'M', 'm':
-				at = AT_Miss
+				at = TT_Miss
 			case 'D', 'd':
-				at = AT_Dodge
+				at = TT_Dodge
 			default:
 				return Error("Invalid value: " + data)
 			}
@@ -5547,6 +5549,51 @@ func (c *Compiler) transformClsn(is IniSection, sc *StateControllerBase, _ int8)
 		}
 		if !any {
 			return Error("Must specify at least one TransformClsn parameter")
+		}
+		return nil
+	})
+	return *ret, err
+}
+
+func (c *Compiler) moveHitSet(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
+	ret, err := (*moveHitSet)(sc), c.stateSec(is, func() error {
+		if err := c.paramValue(is, sc, "redirectid",
+			moveHitSet_redirectid, VT_Int, 1, false); err != nil {
+			return err
+		}
+		var param bool
+		if err := c.stateParam(is, "movehit", false, func(data string) error {
+			param = true
+			return c.scAdd(sc, moveHitSet_movehit, data, VT_Int, 1)
+		}); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "moveguarded", false, func(data string) error {
+			if param {
+				return Error("Conflicting MoveHitSet parameters")
+			}
+			param = true
+			return c.scAdd(sc, moveHitSet_moveguarded, data, VT_Int, 1)
+		}); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "movereversed", false, func(data string) error {
+			if param {
+				return Error("Conflicting MoveHitSet parameters")
+			}
+			param = true
+			return c.scAdd(sc, moveHitSet_movereversed, data, VT_Int, 1)
+		}); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "movecountered", false, func(data string) error {
+			param = true // Does not conflict with others
+			return c.scAdd(sc, moveHitSet_movecountered, data, VT_Bool, 1)
+		}); err != nil {
+			return err
+		}
+		if !param {
+			return Error("No valid MoveHitSet parameters found")
 		}
 		return nil
 	})

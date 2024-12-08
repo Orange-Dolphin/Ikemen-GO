@@ -51,7 +51,11 @@ ignoreHitPause if gameMode = "training" && teamSide = 2 && !isHelper {
 		assertSpecial{flag: noRoundDisplay; flag2: noFightDisplay}
 	}
 	if roundState = 2 {
-		assertSpecial{flag: globalNoKo}
+		assertSpecial{
+			flag: globalNoKo;
+			flag2: noKoFall;
+			flag3: noKoVelocity;
+		}
 		# Life and Power recovery
 		for i = 1; player(1),numPartner + 1; 1 {
 			call TrainingRecovery($i * 2 - 1);

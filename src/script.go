@@ -5405,6 +5405,8 @@ func triggerFunctions(l *lua.LState) {
 			l.Push(lua.LBool(sys.debugWC.asf(ASF_noko)))
 		case "noguardko":
 			l.Push(lua.LBool(sys.debugWC.asf(ASF_noguardko)))
+		case "nokofall":
+			l.Push(lua.LBool(sys.debugWC.asf(ASF_nokofall)))
 		case "nokovelocity":
 			l.Push(lua.LBool(sys.debugWC.asf(ASF_nokovelocity)))
 		case "noailevel":

@@ -3332,93 +3332,91 @@ func (s *Stage) drawModel(pos [2]float32, yofs float32, scl float32, sceneNumber
 	gfx.SetModelUniformF("farPlane", 50)
 
 	unlit := false
+	for idx := 0; idx < 4; idx++ {
+		gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].color", 0, 0, 0)
+	}
 	if len(scene.lightNodes) > 0 {
-		for idx := 0; idx < 4; idx++ {
-			if idx < len(scene.lightNodes) {
-				lightNode := s.model.nodes[scene.lightNodes[idx]]
-				light := s.model.lights[*lightNode.lightIndex]
-				shadowMapNear := float32(0.1)
-				shadowMapFar := float32(50)
-				shadowMapBottom := float32(-20)
-				shadowMapTop := float32(20)
-				shadowMapLeft := float32(-20)
-				shadowMapRight := float32(20)
-				shadowMapBias := float32(0.02)
+		for idx := 0; idx < len(scene.lightNodes); idx++ {
+			lightNode := s.model.nodes[scene.lightNodes[idx]]
+			light := s.model.lights[*lightNode.lightIndex]
+			shadowMapNear := float32(0.1)
+			shadowMapFar := float32(50)
+			shadowMapBottom := float32(-20)
+			shadowMapTop := float32(20)
+			shadowMapLeft := float32(-20)
+			shadowMapRight := float32(20)
+			shadowMapBias := float32(0.02)
 
-				if light.shadowMapNear != 0 {
-					shadowMapNear = light.shadowMapNear
-				}
-				if light.shadowMapFar != 0 {
-					shadowMapFar = light.shadowMapFar
-				}
-				if light.shadowMapBottom != 0 {
-					shadowMapBottom = light.shadowMapBottom
-				}
-				if light.shadowMapTop != 0 {
-					shadowMapTop = light.shadowMapTop
-				}
-				if light.shadowMapLeft != 0 {
-					shadowMapLeft = light.shadowMapLeft
-				}
-				if light.shadowMapRight != 0 {
-					shadowMapRight = light.shadowMapRight
-				}
-				if light.shadowMapBias != 0 {
-					shadowMapBias = light.shadowMapBias
-				}
-				if lightNode.shadowMapNear != 0 {
-					shadowMapNear = lightNode.shadowMapNear
-				}
-				if lightNode.shadowMapFar != 0 {
-					shadowMapFar = lightNode.shadowMapFar
-				}
-				if lightNode.shadowMapBottom != 0 {
-					shadowMapBottom = lightNode.shadowMapBottom
-				}
-				if lightNode.shadowMapTop != 0 {
-					shadowMapTop = lightNode.shadowMapTop
-				}
-				if lightNode.shadowMapLeft != 0 {
-					shadowMapLeft = lightNode.shadowMapLeft
-				}
-				if lightNode.shadowMapRight != 0 {
-					shadowMapRight = lightNode.shadowMapRight
-				}
-				if lightNode.shadowMapBias != 0 {
-					shadowMapBias = lightNode.shadowMapBias
-				}
-				gfx.SetModelUniformI("lights["+strconv.Itoa(idx)+"].type", int(light.lightType))
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].intensity", light.intensity)
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].innerConeCos", light.innerConeCos)
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].outerConeCos", light.outerConeCos)
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].range", light.lightRange)
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].color", light.color[0], light.color[1], light.color[2])
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].position", lightNode.worldTransform[12], lightNode.worldTransform[13], lightNode.worldTransform[14])
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].shadowMapFar", shadowMapFar)
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].shadowBias", shadowMapBias)
-				if light.lightType != PointLight {
-					gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].direction", lightNode.lightDirection[0], lightNode.lightDirection[1], lightNode.lightDirection[2])
-				}
-				if light.lightType == DirectionalLight {
-					shadowMapNear = -20
-				}
-				if light.lightType == DirectionalLight {
-					lightProj := mgl.Ortho(shadowMapLeft, shadowMapRight, shadowMapBottom, shadowMapTop, shadowMapNear, shadowMapFar)
-					lightView := mgl.LookAtV([3]float32{lightNode.localTransform[12], lightNode.localTransform[13], lightNode.localTransform[14]}, [3]float32{lightNode.localTransform[12] + lightNode.lightDirection[0], lightNode.localTransform[13] + lightNode.lightDirection[1], lightNode.localTransform[14] + lightNode.lightDirection[2]}, [3]float32{0, 1, 0})
-					lightMatrix := lightProj.Mul4(lightView)
-					gfx.SetModelUniformMatrix("lightMatrices["+strconv.Itoa(idx)+"]", lightMatrix[:])
-				} else if light.lightType == SpotLight {
-					lightProj := mgl.Perspective(mgl.DegToRad(90), 1, shadowMapNear, shadowMapFar)
-					lightView := mgl.LookAtV([3]float32{lightNode.localTransform[12], lightNode.localTransform[13], lightNode.localTransform[14]}, [3]float32{lightNode.localTransform[12] + lightNode.lightDirection[0], lightNode.localTransform[13] + lightNode.lightDirection[1], lightNode.localTransform[14] + lightNode.lightDirection[2]}, [3]float32{0, 1, 0})
-					lightMatrix := lightProj.Mul4(lightView)
-					gfx.SetModelUniformMatrix("lightMatrices["+strconv.Itoa(idx)+"]", lightMatrix[:])
-				} else {
-					ident := mgl.Ident4()
-					gfx.SetModelUniformMatrix("lightMatrices["+strconv.Itoa(idx)+"]", ident[:])
-				}
+			if light.shadowMapNear != 0 {
+				shadowMapNear = light.shadowMapNear
+			}
+			if light.shadowMapFar != 0 {
+				shadowMapFar = light.shadowMapFar
+			}
+			if light.shadowMapBottom != 0 {
+				shadowMapBottom = light.shadowMapBottom
+			}
+			if light.shadowMapTop != 0 {
+				shadowMapTop = light.shadowMapTop
+			}
+			if light.shadowMapLeft != 0 {
+				shadowMapLeft = light.shadowMapLeft
+			}
+			if light.shadowMapRight != 0 {
+				shadowMapRight = light.shadowMapRight
+			}
+			if light.shadowMapBias != 0 {
+				shadowMapBias = light.shadowMapBias
+			}
+			if lightNode.shadowMapNear != 0 {
+				shadowMapNear = lightNode.shadowMapNear
+			}
+			if lightNode.shadowMapFar != 0 {
+				shadowMapFar = lightNode.shadowMapFar
+			}
+			if lightNode.shadowMapBottom != 0 {
+				shadowMapBottom = lightNode.shadowMapBottom
+			}
+			if lightNode.shadowMapTop != 0 {
+				shadowMapTop = lightNode.shadowMapTop
+			}
+			if lightNode.shadowMapLeft != 0 {
+				shadowMapLeft = lightNode.shadowMapLeft
+			}
+			if lightNode.shadowMapRight != 0 {
+				shadowMapRight = lightNode.shadowMapRight
+			}
+			if lightNode.shadowMapBias != 0 {
+				shadowMapBias = lightNode.shadowMapBias
+			}
+			gfx.SetModelUniformI("lights["+strconv.Itoa(idx)+"].type", int(light.lightType))
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].intensity", light.intensity)
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].innerConeCos", light.innerConeCos)
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].outerConeCos", light.outerConeCos)
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].range", light.lightRange)
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].color", light.color[0], light.color[1], light.color[2])
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].position", lightNode.worldTransform[12], lightNode.worldTransform[13], lightNode.worldTransform[14])
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].shadowMapFar", shadowMapFar)
+			gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].shadowBias", shadowMapBias)
+			if light.lightType != PointLight {
+				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].direction", lightNode.lightDirection[0], lightNode.lightDirection[1], lightNode.lightDirection[2])
+			}
+			if light.lightType == DirectionalLight {
+				shadowMapNear = -20
+			}
+			if light.lightType == DirectionalLight {
+				lightProj := mgl.Ortho(shadowMapLeft, shadowMapRight, shadowMapBottom, shadowMapTop, shadowMapNear, shadowMapFar)
+				lightView := mgl.LookAtV([3]float32{lightNode.localTransform[12], lightNode.localTransform[13], lightNode.localTransform[14]}, [3]float32{lightNode.localTransform[12] + lightNode.lightDirection[0], lightNode.localTransform[13] + lightNode.lightDirection[1], lightNode.localTransform[14] + lightNode.lightDirection[2]}, [3]float32{0, 1, 0})
+				lightMatrix := lightProj.Mul4(lightView)
+				gfx.SetModelUniformMatrix("lightMatrices["+strconv.Itoa(idx)+"]", lightMatrix[:])
+			} else if light.lightType == SpotLight {
+				lightProj := mgl.Perspective(mgl.DegToRad(90), 1, shadowMapNear, shadowMapFar)
+				lightView := mgl.LookAtV([3]float32{lightNode.localTransform[12], lightNode.localTransform[13], lightNode.localTransform[14]}, [3]float32{lightNode.localTransform[12] + lightNode.lightDirection[0], lightNode.localTransform[13] + lightNode.lightDirection[1], lightNode.localTransform[14] + lightNode.lightDirection[2]}, [3]float32{0, 1, 0})
+				lightMatrix := lightProj.Mul4(lightView)
+				gfx.SetModelUniformMatrix("lightMatrices["+strconv.Itoa(idx)+"]", lightMatrix[:])
 			} else {
-				gfx.SetModelUniformF("lights["+strconv.Itoa(idx)+"].color", 0, 0, 0)
-
+				ident := mgl.Ident4()
+				gfx.SetModelUniformMatrix("lightMatrices["+strconv.Itoa(idx)+"]", ident[:])
 			}
 		}
 	} else if s.model.environment == nil {

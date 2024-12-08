@@ -3857,12 +3857,7 @@ func (sc stateDef) Run(c *Char) {
 		case stateDef_anim:
 			c.changeAnimEx(exp[1].evalI(c), c.playerNo, string(*(*[]byte)(unsafe.Pointer(&exp[0]))), false)
 		case stateDef_ctrl:
-			// in mugen fatal blow ignores statedef ctrl
-			if !c.ghv.fatal {
-				c.setCtrl(exp[0].evalB(c))
-			} else {
-				c.ghv.fatal = false
-			}
+			c.setCtrl(exp[0].evalB(c))
 		case stateDef_poweradd:
 			c.powerAdd(exp[0].evalI(c))
 		}
@@ -6347,7 +6342,7 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, id byte, exp []BytecodeExp) bool {
 		hd.guardsound_channel = exp[0].evalI(c)
 	case hitDef_priority:
 		hd.priority = exp[0].evalI(c)
-		hd.bothhittype = AiuchiType(exp[1].evalI(c))
+		hd.prioritytype = TradeType(exp[1].evalI(c))
 	case hitDef_p1stateno:
 		hd.p1stateno = exp[0].evalI(c)
 	case hitDef_p2stateno:
@@ -7316,7 +7311,7 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 			case hitDef_priority:
 				eachProj(func(p *Projectile) {
 					p.hitdef.priority = exp[0].evalI(c)
-					p.hitdef.bothhittype = AiuchiType(exp[1].evalI(c))
+					p.hitdef.prioritytype = TradeType(exp[1].evalI(c))
 				})
 			case hitDef_p1stateno:
 				eachProj(func(p *Projectile) {
@@ -12061,6 +12056,43 @@ func (sc transformClsn) Run(c *Char, _ []int32) bool {
 		case transformClsn_angle:
 			crun.clsnAngle += exp[0].evalF(c)
 		case transformClsn_redirectid:
+			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
+				crun = rid
+			} else {
+				return false
+			}
+		}
+		return true
+	})
+	return false
+}
+
+type moveHitSet StateControllerBase
+
+const (
+	moveHitSet_movehit byte = iota
+	moveHitSet_moveguarded
+	moveHitSet_movereversed
+	moveHitSet_movecountered
+	moveHitSet_redirectid
+)
+
+func (sc moveHitSet) Run(c *Char, _ []int32) bool {
+	crun := c
+	StateControllerBase(sc).run(c, func(id byte, exp []BytecodeExp) bool {
+		switch id {
+		case moveHitSet_movehit:
+			crun.mctype = MC_Hit
+			crun.mctime = Max(0, exp[0].evalI(c))
+		case moveHitSet_moveguarded:
+			crun.mctype = MC_Guarded
+			crun.mctime = Max(0, exp[0].evalI(c))
+		case moveHitSet_movereversed:
+			crun.mctype = MC_Reversed
+			crun.mctime = Max(0, exp[0].evalI(c))
+		case moveHitSet_movecountered:
+			crun.counterHit = exp[0].evalB(c)
+		case moveHitSet_redirectid:
 			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
 				crun = rid
 			} else {

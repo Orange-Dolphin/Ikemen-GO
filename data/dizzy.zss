@@ -229,7 +229,7 @@ if !const(Default.Enable.Dizzy) || isHelper || teamSide = 0 {
 		# Similar to using kill = 0 in LifeAdd
 		if getHitVar(frame) && getHitVar(dizzyPoints) <= 0 {
 			dizzyPointsSet{value: 1}
-		} else if moveType = H && !inCustomState {
+		} else if (moveType = H || stateNo = const(StateDownedGetHit_gettingUp)) && !inCustomState {
 			# Change get hit properties when becoming dizzy
 			dizzySet{value: 1}
 			getHitVarSet{
@@ -244,10 +244,6 @@ if !const(Default.Enable.Dizzy) || isHelper || teamSide = 0 {
 				if anim = [const(AnimCrouchHit_light), const(AnimCrouchHit_hard)] {
 					changeAnim{value: const(AnimStandOrAirHitBack)}
 				}
-			}
-			# Use diagonal hit animation if available
-			if anim != const(AnimAirFall_hitUpDiagonal) && selfAnimExist(const(AnimAirFall_hitUpDiagonal)) {
-				changeAnim{value: const(AnimAirFall_hitUpDiagonal)}
 			}
 		}
 	}
