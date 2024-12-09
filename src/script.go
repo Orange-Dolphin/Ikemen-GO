@@ -3062,6 +3062,10 @@ func systemScriptInit(l *lua.LState) {
 		sys.bgm.UpdateVolume()
 		return 0
 	})
+	luaRegister(l, "usePalette", func(l *lua.LState) int {
+		sys.usePalette = boolArg(l, 1)
+		return 0
+	})
 	luaRegister(l, "wavePlay", func(l *lua.LState) int {
 		s, ok := toUserData(l, 1).(*Sound)
 		if !ok {
