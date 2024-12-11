@@ -2592,8 +2592,8 @@ func (wm *wincntMap) update() {
 // Retrieves win counts for a character, ensuring the slice has MaxPalNo elements
 func (wm wincntMap) getItem(def string) []int32 {
 	lv := wm[def]
-	if len(lv) < MaxPalNo {
-		lv = append(lv, make([]int32, MaxPalNo-len(lv))...)
+	if len(lv) < sys.MaxPals {
+		lv = append(lv, make([]int32, sys.MaxPals-len(lv))...)
 	}
 	return lv
 }
