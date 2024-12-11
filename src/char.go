@@ -2121,15 +2121,15 @@ type CharGlobalInfo struct {
 	author                  string
 	authorLow               string
 	lifebarname             string
-	palkeymap               [MaxPalNo]int32
+	palkeymap               []int32
 	sff                     *Sff
 	palettedata             *Palette
 	snd                     *Snd
 	anim                    AnimationTable
 	palno                   int32
-	pal                     [MaxPalNo]string
-	palExist                [MaxPalNo]bool
-	palSelectable           [MaxPalNo]bool
+	pal                     []string
+	palExist                []bool
+	palSelectable           []bool
 	ikemenver               [3]uint16
 	ikemenverF              float32
 	mugenver                [2]uint16
@@ -2606,6 +2606,12 @@ func (c *Char) ocd() *OverrideCharData {
 
 func (c *Char) load(def string) error {
 	gi := &sys.cgi[c.playerNo]
+
+	gi.palkeymap = make([]int32, sys.MaxPals)
+	gi.pal = make([]string, sys.MaxPals)
+	gi.palExist = make([]bool, sys.MaxPals)
+	gi.palSelectable = make([]bool, sys.MaxPals) 
+	
 	gi.def, gi.displayname, gi.lifebarname, gi.author = def, "", "", ""
 	gi.sff, gi.palettedata, gi.snd, gi.quotes = nil, nil, nil, [MaxQuotes]string{}
 	gi.anim = NewAnimationTable()
@@ -3210,7 +3216,7 @@ func (c *Char) loadPalette() {
 	if gi.sff.header.Ver0 == 1 {
 		gi.palettedata.palList.ResetRemap()
 		tmp := 0
-		for i := 0; i < MaxPalNo; i++ {
+		for i := 0; i < sys.MaxPals; i++ {
 			pl := gi.palettedata.palList.Get(i)
 			var f *os.File
 			var err error
@@ -3251,7 +3257,7 @@ func (c *Char) loadPalette() {
 			delete(gi.palettedata.palList.PalTable, [...]int16{1, 1})
 		}
 	} else {
-		for i := 0; i < MaxPalNo; i++ {
+		for i := 0; i < sys.MaxPals; i++ {
 			_, gi.palExist[i] =
 				gi.palettedata.palList.PalTable[[...]int16{1, int16(i + 1)}]
 		}
@@ -3259,7 +3265,7 @@ func (c *Char) loadPalette() {
 	for i := range gi.palSelectable {
 		gi.palSelectable[i] = false
 	}
-	for i := 0; i < MaxPalNo; i++ {
+	for i := 0; i < sys.MaxPals; i++ {
 		startj := gi.palkeymap[i]
 		if !gi.palExist[startj] {
 			startj %= 6
@@ -3271,7 +3277,7 @@ func (c *Char) loadPalette() {
 				break
 			}
 			j++
-			if j >= MaxPalNo {
+			if j >= int32(sys.MaxPals) {
 				j = 0
 			}
 			if j == startj {
@@ -3307,7 +3313,7 @@ func (c *Char) loadPalette() {
 		// Try the next palette index
 		i++
 		// Wrap around if the index exceeds the maximum number of palettes
-		if i >= MaxPalNo {
+		if int(i) >= sys.MaxPals {
 			i = 0
 		}
 		// If we've looped back to the starting index, handle fallback
@@ -10038,6 +10044,7 @@ func (cl *CharList) enemyNear(c *Char, n int32, p2, ignoreDefeatedEnemy, log boo
 		cache = &c.p2enemy
 	} else {
 		*cache = (*cache)[:0]
+		
 	}
 	var add func(*Char, int, float32)
 	add = func(e *Char, idx int, adddist float32) {
