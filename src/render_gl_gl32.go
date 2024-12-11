@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"unsafe"
 
@@ -74,14 +75,14 @@ type ShaderProgram struct {
 
 func newShaderProgram(vert, frag, geo, id string, crashWhenFail bool) (s *ShaderProgram, err error) {
 	var vertObj, fragObj, geoObj, prog uint32
-	if vertObj, err = compileShader(gl.VERTEX_SHADER, vert); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
+	if vertObj, err = compileShader(gl.VERTEX_SHADER, vert); chkEX(err, "Shader compilation error on "+id+"\n", crashWhenFail) {
 		return nil, err
 	}
-	if fragObj, err = compileShader(gl.FRAGMENT_SHADER, frag); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
+	if fragObj, err = compileShader(gl.FRAGMENT_SHADER, frag); chkEX(err, "Shader compilation error on "+id+"\n", crashWhenFail) {
 		return nil, err
 	}
 	if len(geo) > 0 {
-		if geoObj, err = compileShader(gl.GEOMETRY_SHADER, geo); chkEX(err, "Shader compliation error on "+id+"\n", crashWhenFail) {
+		if geoObj, err = compileShader(gl.GEOMETRY_SHADER, geo); chkEX(err, "Shader compilation error on "+id+"\n", crashWhenFail) {
 			return nil, err
 		}
 		if prog, err = linkProgram(vertObj, fragObj, geoObj); chkEX(err, "Link program error on "+id+"\n", crashWhenFail) {
@@ -338,9 +339,9 @@ type Renderer struct {
 	fbo_shadow_texture      uint32
 	fbo_shadow_cube_texture uint32
 	fbo_env                 uint32
-	// Post-processing shaders
-	postVertBuffer   uint32
-	postShaderSelect []*ShaderProgram
+	// Post-processing shader
+	postVertBuffer       uint32
+	postProcessingShader *ShaderProgram
 	// Shader and vertex data for primitive rendering
 	spriteShader *ShaderProgram
 	vertexBuffer uint32
@@ -451,8 +452,6 @@ func (r *Renderer) Init() {
 	// Store current timestamp
 	sys.prevTimestamp = glfw.GetTime()
 
-	r.postShaderSelect = make([]*ShaderProgram, 1+len(sys.externalShaderList))
-
 	// Data buffers for rendering
 	postVertData := f32.Bytes(binary.LittleEndian, -1, -1, 1, -1, -1, 1, 1, 1)
 
@@ -484,25 +483,38 @@ func (r *Renderer) Init() {
 		}
 	}
 
-	// Compile postprocessing shaders
+	// Compile postprocessing shader
 
-	// Calculate total amount of shaders loaded.
-	r.postShaderSelect = make([]*ShaderProgram, 1+len(sys.externalShaderList))
+	// Load identity shader as default
+	r.postProcessingShader, _ = newShaderProgram(identVertShader, identFragShader, "", "Identity Postprocess", true)
+	r.postProcessingShader.RegisterAttributes("VertCoord")
+	r.postProcessingShader.RegisterUniforms("Texture", "TextureSize", "CurrentTime")
 
-	// Ident shader (no postprocessing)
-	r.postShaderSelect[0], _ = newShaderProgram(identVertShader, identFragShader, "", "Identity Postprocess", true)
-	r.postShaderSelect[0].RegisterAttributes("VertCoord", "TexCoord")
-	r.postShaderSelect[0].RegisterUniforms("Texture", "TextureSize", "CurrentTime")
+	// If a post-processing shader is specified in the configuration, load it
+	if sys.externalShader != "" {
+		// Load vertex shader
+		vertPath := sys.externalShader + ".vert"
+		vertContent, err := os.ReadFile(vertPath)
+		if err != nil {
+			chk(fmt.Errorf("failed to read vertex shader %s: %w", vertPath, err))
+		}
 
-	// External Shaders
-	for i := 0; i < len(sys.externalShaderList); i++ {
-		r.postShaderSelect[1+i], _ = newShaderProgram(sys.externalShaders[0][i],
-			sys.externalShaders[1][i], "", fmt.Sprintf("Postprocess Shader #%v", i+1), true)
-		r.postShaderSelect[1+i].RegisterAttributes("VertCoord", "TexCoord")
-		loc := r.postShaderSelect[0].a["TexCoord"]
-		gl.VertexAttribPointer(uint32(loc), 3, gl.FLOAT, false, 5*4, gl.PtrOffset(2*4))
-		gl.EnableVertexAttribArray(uint32(loc))
-		r.postShaderSelect[1+i].RegisterUniforms("Texture", "TextureSize", "CurrentTime")
+		// Load fragment shader
+		fragPath := sys.externalShader + ".frag"
+		fragContent, err := os.ReadFile(fragPath)
+		if err != nil {
+			chk(fmt.Errorf("failed to read fragment shader %s: %w", fragPath, err))
+		}
+
+		// Use loaded shader contents from System
+		customPostShader, err := newShaderProgram(string(vertContent)+"\x00", string(fragContent)+"\x00", "", "Postprocess Shader", true)
+		if err != nil {
+			sys.errLog.Printf("Failed to compile post-processing shader: %v", err)
+			// Fallback to identity shader
+		} else {
+			r.postProcessingShader = customPostShader
+			r.postProcessingShader.RegisterUniforms("Texture", "TextureSize", "CurrentTime")
+		}
 	}
 
 	if sys.multisampleAntialiasing > 0 {
@@ -633,7 +645,7 @@ func (r *Renderer) EndFrame() {
 	}
 
 	x, y, resizedWidth, resizedHeight := sys.window.GetScaledViewportSize()
-	postShader := r.postShaderSelect[sys.postProcessingShader]
+	postShader := r.postProcessingShader
 
 	var scaleMode int32 // GL enum
 	if sys.windowScaleMode {

@@ -189,12 +189,13 @@ type LbBgTextSnd struct {
 	displaytime int32
 	snd         [2]int32
 	sndtime     int32
-	cnt         int32
+	timer       int32
 }
 
 func newLbBgTextSnd() LbBgTextSnd {
 	return LbBgTextSnd{snd: [2]int32{-1}}
 }
+
 func readLbBgTextSnd(pre string, is IniSection,
 	sff *Sff, at AnimationTable, ln int16, f []*Fnt) LbBgTextSnd {
 	bts := newLbBgTextSnd()
@@ -208,26 +209,30 @@ func readLbBgTextSnd(pre string, is IniSection,
 	is.ReadI32(pre+"sndtime", &bts.sndtime)
 	return bts
 }
+
 func (bts *LbBgTextSnd) step(snd *Snd) {
-	if bts.cnt == bts.sndtime {
+	if bts.timer == bts.sndtime {
 		snd.play(bts.snd, 100, 0, 0, 0, 0)
 	}
-	if bts.cnt >= bts.time {
+	if bts.timer >= bts.time {
 		bts.bg.Action()
 	}
-	bts.cnt++
+	bts.timer++
 }
+
 func (bts *LbBgTextSnd) reset() {
-	bts.cnt = 0
+	bts.timer = 0
 	bts.bg.Reset()
 }
+
 func (bts *LbBgTextSnd) bgDraw(layerno int16) {
-	if bts.cnt > bts.time && bts.cnt <= bts.time+bts.displaytime {
+	if bts.timer > bts.time && bts.timer <= bts.time+bts.displaytime {
 		bts.bg.Draw(float32(bts.pos[0])+sys.lifebarOffsetX, float32(bts.pos[1]), layerno, sys.lifebarScale)
 	}
 }
+
 func (bts *LbBgTextSnd) draw(layerno int16, f []*Fnt) {
-	if bts.cnt > bts.time && bts.cnt <= bts.time+bts.displaytime &&
+	if bts.timer > bts.time && bts.timer <= bts.time+bts.displaytime &&
 		bts.text.font[0] >= 0 && int(bts.text.font[0]) < len(f) && f[bts.text.font[0]] != nil {
 		bts.text.lay.DrawText(float32(bts.pos[0])+sys.lifebarOffsetX, float32(bts.pos[1]), sys.lifebarScale, layerno,
 			bts.text.text, f[bts.text.font[0]], bts.text.font[1], bts.text.font[2], bts.text.palfx, bts.text.frgba)
@@ -1597,6 +1602,7 @@ func (co *LifeBarCombo) draw(layerno int16, f []*Fnt, side int) {
 
 type LbMsg struct {
 	resttime int32
+	agetimer int32
 	counterX float32
 	text     string
 	bg       AnimLayout
@@ -1607,9 +1613,40 @@ type LbMsg struct {
 func newLbMsg(text string, time int32, side int) *LbMsg {
 	return &LbMsg{resttime: time, counterX: sys.lifebar.ac[side].start_x * 2, text: text}
 }
+
 func insertLbMsg(array []*LbMsg, value *LbMsg, index int) []*LbMsg {
-	return append(array[:index], append([]*LbMsg{value}, array[index:]...)...)
+	// Remove one empty index before appending the new one
+	// This reduces the chance of an empty space pushing older messages
+	if index == 0 {
+		// Check from the top
+		for i := 0; i < len(array); i++ {
+			if array[i].del {
+				// Remove the element at index i by shifting elements down
+				copy(array[i:], array[i+1:])
+				array = array[:len(array)-1]
+				break
+			}
+		}
+	} else {
+		// Check from the bottom
+		for i := len(array) - 1; i >= index; i-- {
+			if array[i].del {
+				// Remove the element at index i by shifting elements down
+				copy(array[i:], array[i+1:])
+				array = array[:len(array)-1]
+				break
+			}
+		}
+	}
+	// Insert the new message at the specified index
+	if index == len(array) {
+		array = append(array, value)
+	} else {
+		array = append(array[:index], append([]*LbMsg{value}, array[index:]...)...)
+	}
+	return array
 }
+
 func removeLbMsg(array []*LbMsg, index int) []*LbMsg {
 	return append(array[:index], array[index+1:]...)
 }
@@ -1625,11 +1662,19 @@ type LifeBarAction struct {
 	hidespeed   float32
 	messages    []*LbMsg
 	is          IniSection
+	max         int32
 }
 
 func newLifeBarAction() *LifeBarAction {
-	return &LifeBarAction{displaytime: 90, showspeed: 8, hidespeed: 4, is: make(map[string]string)}
+	return &LifeBarAction{
+		displaytime: 90,
+		showspeed:   8,
+		hidespeed:   4,
+		max:         8,
+		is:          make(map[string]string),
+	}
 }
+
 func readLifeBarAction(pre string, is IniSection, f []*Fnt) *LifeBarAction {
 	ac := newLifeBarAction()
 	ac.is = is
@@ -1644,8 +1689,10 @@ func readLifeBarAction(pre string, is IniSection, f []*Fnt) *LifeBarAction {
 	is.ReadF32(pre+"showspeed", &ac.showspeed)
 	ac.showspeed = MaxF(1, ac.showspeed)
 	is.ReadF32(pre+"hidespeed", &ac.hidespeed)
+	is.ReadI32(pre+"max", &ac.max)
 	return ac
 }
+
 func (ac *LifeBarAction) step(leader int) {
 	if ac.oldleader != leader {
 		ac.oldleader = leader
@@ -1664,15 +1711,18 @@ func (ac *LifeBarAction) step(leader int) {
 		if AbsF(v.counterX) < 1 {
 			v.resttime--
 		}
+		v.agetimer++
 	}
 	if len(ac.messages) > 0 && ac.messages[len(ac.messages)-1].del {
 		ac.messages = removeLbMsg(ac.messages, len(ac.messages)-1)
 	}
 }
+
 func (ac *LifeBarAction) reset(leader int) {
 	ac.oldleader = leader
 	ac.messages = []*LbMsg{}
 }
+
 func (ac *LifeBarAction) draw(layerno int16, f []*Fnt, side int) {
 	for k, v := range ac.messages {
 		if v.resttime <= 0 && v.counterX == ac.start_x*2 {
@@ -1688,23 +1738,25 @@ func (ac *LifeBarAction) draw(layerno int16, f []*Fnt, side int) {
 				x -= v.counterX
 			}
 		}
+		// Previously the spacing accounted for the size of the current element, like sprite tilespacing
+		// That created a lot of trouble when aligning things, so currently the spacing is fixed, like typical font and animation spacing
+		// https://github.com/ikemen-engine/Ikemen-GO/issues/2166
+		// Draw background
 		if v.bg.anim.spr != nil {
 			v.bg.Draw(x+sys.lifebarOffsetX+float32(k)*float32(ac.spacing[0]),
-				float32(ac.pos[1])+float32(k)*float32(ac.spacing[1])+
-					float32(k)*(float32(v.bg.anim.spr.Size[1])*v.bg.lay.scale[1]),
+				float32(ac.pos[1])+float32(k)*float32(ac.spacing[1]),
 				layerno, sys.lifebarScale)
 		}
+		// Draw animation/sprite
 		if v.front.anim.spr != nil {
 			v.front.Draw(x+sys.lifebarOffsetX+float32(k)*float32(ac.spacing[0]),
-				float32(ac.pos[1])+float32(k)*float32(ac.spacing[1])+
-					float32(k)*(float32(v.front.anim.spr.Size[1])*v.front.lay.scale[1]),
+				float32(ac.pos[1])+float32(k)*float32(ac.spacing[1]),
 				layerno, sys.lifebarScale)
 		}
-		if ac.text.font[0] >= 0 && int(ac.text.font[0]) < len(f) && f[ac.text.font[0]] != nil {
-			ac.text.lay.DrawText(x+sys.lifebarOffsetX+float32(k)*float32(ac.spacing[0])*sys.lifebar.fnt_scale,
-				float32(ac.pos[1])+float32(k)*float32(ac.spacing[1])*sys.lifebar.fnt_scale+
-					float32(k)*(float32(f[ac.text.font[0]].Size[1])*ac.text.lay.scale[1]*sys.lifebar.fnt_scale+
-						float32(f[ac.text.font[0]].Spacing[1])*ac.text.lay.scale[1]*sys.lifebar.fnt_scale),
+		// Draw text
+		if v.text != "" && ac.text.font[0] >= 0 && int(ac.text.font[0]) < len(f) && f[ac.text.font[0]] != nil {
+			ac.text.lay.DrawText(x+sys.lifebarOffsetX+float32(k)*float32(ac.spacing[0]),
+				float32(ac.pos[1])+float32(k)*float32(ac.spacing[1]),
 				sys.lifebarScale, layerno, v.text, f[ac.text.font[0]], ac.text.font[1], ac.text.font[2],
 				ac.text.palfx, ac.text.frgba)
 		}

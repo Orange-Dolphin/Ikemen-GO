@@ -44,7 +44,7 @@
   "EnableModel": true,
   "EnableModelShadow": true,
   "EscOpensMenu": true,
-  "ExternalShaders": [],
+  "ExternalShader": "",
   "FirstRun": true,
   "ForceStageZoomin": 0,
   "ForceStageZoomout": 0,
@@ -90,7 +90,6 @@
   "PauseMasterVolume": 0,
   "Players": 4,
   "PngSpriteFilter": true,
-  "PostProcessingShader": 0,
   "QuickContinue": false,
   "RatioAttack": [
     0.82,

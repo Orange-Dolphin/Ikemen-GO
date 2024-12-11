@@ -327,13 +327,8 @@ type System struct {
 	lifebarLocalcoord    [2]int32
 
 	// Shader Vars
-	postProcessingShader    int32
+	externalShader          string
 	multisampleAntialiasing int32
-
-	// External Shader Vars
-	externalShaderList  []string
-	externalShaderNames []string
-	externalShaders     [][]string
 
 	// Icon
 	windowMainIcon         []image.Image
@@ -439,45 +434,7 @@ func (s *System) init(w, h int32) *lua.LState {
 		}
 	}
 
-	// Check if the shader selected is currently available.
-	if s.postProcessingShader < int32(len(s.externalShaderList)) {
-		s.postProcessingShader = 0
-	}
-
-	// Loading of external shader data.
-	// We need to do this before the render initialization at "gfx.Init()"
-	if len(s.externalShaderList) > 0 {
-		// First we initialize arrays.
-		s.externalShaders = make([][]string, 2)
-		s.externalShaderNames = make([]string, len(s.externalShaderList))
-		s.externalShaders[0] = make([]string, len(s.externalShaderList))
-		s.externalShaders[1] = make([]string, len(s.externalShaderList))
-
-		// Then we load.
-		for i, shaderLocation := range s.externalShaderList {
-			// Create names.
-			shaderLocation = strings.Replace(shaderLocation, "\\", "/", -1)
-			splitDir := strings.Split(shaderLocation, "/")
-			s.externalShaderNames[i] = splitDir[len(splitDir)-1]
-
-			// Load vert shaders.
-			content, err := os.ReadFile(shaderLocation + ".vert")
-			if err != nil {
-				chk(err)
-			}
-			s.externalShaders[0][i] = string(content) + "\x00"
-
-			// Load frag shaders.
-			content, err = os.ReadFile(shaderLocation + ".frag")
-			if err != nil {
-				chk(err)
-			}
-			s.externalShaders[1][i] = string(content) + "\x00"
-		}
-	}
-	// PS: The "\x00" is what is know as Null Terminator.
-
-	// Now we proceed to init the render.
+	// Init the render.
 	gfx.Init()
 	gfx.BeginFrame(false)
 	// And the audio.

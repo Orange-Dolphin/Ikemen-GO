@@ -402,7 +402,7 @@ func (cv *CharVelocity) init() {
 	cv.air.gethit.airrecover.fwd = 0.0
 	cv.air.gethit.airrecover.up = -2.0
 	cv.air.gethit.airrecover.down = 1.5
-	cv.air.gethit.ko.add = [...]float32{-2, -2}
+	cv.air.gethit.ko.add = [...]float32{-2.5, -2}
 	cv.air.gethit.ko.ymin = -3
 	cv.ground.gethit.ko.xmul = 0.66
 	cv.ground.gethit.ko.add = [...]float32{-2.5, -2}
@@ -774,6 +774,8 @@ type GetHitVar struct {
 	xaccel              float32
 	yaccel              float32
 	zaccel              float32
+	xveladd             float32
+	yveladd             float32
 	hitid               int32
 	xoff                float32
 	yoff                float32
@@ -6438,35 +6440,79 @@ func (c *Char) appendLifebarAction(text string, snd, spr [2]int32, anim, time in
 	if _, ok := sys.lifebar.missing["[action]"]; ok {
 		return
 	}
-	if snd[0] != -1 {
+
+	// Play sound
+	if snd[0] != -1 && snd[1] != -1 {
 		sys.lifebar.snd.play(snd, 100, 0, 0, 0, 0)
 	}
+
+	// If sound only, stop here
+	if anim == -1 && (spr[0] == -1 || spr[1] == -1) && text == "" {
+		return
+	}
+
+	teammsg := sys.lifebar.ac[c.teamside]
+
+	// If adding a new message while exceeding the maximum number allowed, make the oldest message go away faster
+	var count int32
+	for _, v := range teammsg.messages {
+		if !v.del {
+			count++
+		}
+	}
+	if count >= teammsg.max {
+		var oldest int
+		var oldesttimer int32
+		// Reset timer for last messages if "top"
+		for i := 0; i < len(teammsg.messages); i++ {
+			msg := teammsg.messages[i]
+			if !msg.del && msg.resttime > 0 && msg.agetimer > oldesttimer {
+				oldest = i
+				oldesttimer = msg.agetimer
+			}
+		}
+		if oldest < len(teammsg.messages) && teammsg.messages[oldest] != nil {
+			teammsg.messages[oldest].resttime = 0
+		}
+	}
+
+	// Use index 0 if "top", otherwise find the first free message slot
 	index := 0
 	if !top {
-		for k, v := range sys.lifebar.ac[c.teamside].messages {
+		for k, v := range teammsg.messages {
 			if v.del {
-				sys.lifebar.ac[c.teamside].messages = removeLbMsg(sys.lifebar.ac[c.teamside].messages, k)
+				teammsg.messages = removeLbMsg(teammsg.messages, k)
 				break
 			}
 			index++
 		}
 	}
+
+	// Get default display time from the lifebar
 	if time == -1 {
-		time = sys.lifebar.ac[c.teamside].displaytime
+		time = teammsg.displaytime
 	}
+
+	// Prepare contents of new message
 	msg := newLbMsg(text, int32(float32(time)*timemul), c.teamside)
-	if anim != -1 || spr[0] != -1 {
-		delete(sys.lifebar.ac[c.teamside].is, fmt.Sprintf("team%v.front.anim", c.teamside+1))
-		delete(sys.lifebar.ac[c.teamside].is, fmt.Sprintf("team%v.front.spr", c.teamside+1))
-		if anim != -1 {
-			sys.lifebar.ac[c.teamside].is[fmt.Sprintf("team%v.front.anim", c.teamside+1)] = fmt.Sprintf("%v", anim)
-		} else {
-			sys.lifebar.ac[c.teamside].is[fmt.Sprintf("team%v.front.spr", c.teamside+1)] = fmt.Sprintf("%v,%v", spr[0], spr[1])
-		}
-		msg.bg = *ReadAnimLayout(fmt.Sprintf("team%v.bg.", c.teamside+1), sys.lifebar.ac[c.teamside].is, sys.lifebar.sff, sys.lifebar.at, 2)
-		msg.front = *ReadAnimLayout(fmt.Sprintf("team%v.front.", c.teamside+1), sys.lifebar.ac[c.teamside].is, sys.lifebar.sff, sys.lifebar.at, 2)
+	delete(teammsg.is, fmt.Sprintf("team%v.front.anim", c.teamside+1))
+	delete(teammsg.is, fmt.Sprintf("team%v.front.spr", c.teamside+1))
+
+	// Read animation
+	if anim != -1 {
+		teammsg.is[fmt.Sprintf("team%v.front.anim", c.teamside+1)] = fmt.Sprintf("%v", anim)
 	}
-	sys.lifebar.ac[c.teamside].messages = insertLbMsg(sys.lifebar.ac[c.teamside].messages, msg, index)
+	// Read sprite
+	if spr[0] != -1 && spr[1] != -1 {
+		teammsg.is[fmt.Sprintf("team%v.front.spr", c.teamside+1)] = fmt.Sprintf("%v,%v", spr[0], spr[1])
+	}
+	// Read background
+	msg.bg = *ReadAnimLayout(fmt.Sprintf("team%v.bg.", c.teamside+1), teammsg.is, sys.lifebar.sff, sys.lifebar.at, 2)
+	// Read front
+	msg.front = *ReadAnimLayout(fmt.Sprintf("team%v.front.", c.teamside+1), teammsg.is, sys.lifebar.sff, sys.lifebar.at, 2)
+
+	// Insert new message
+	teammsg.messages = insertLbMsg(teammsg.messages, msg, index)
 }
 
 func (c *Char) appendDialogue(s string, reset bool) {
@@ -8508,8 +8554,6 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 	// hitTypeGet() function definition start
 	hitTypeGet := func(c *Char, hd *HitDef, pos [3]float32, projf float32, attackMul [4]float32) (hitType int32) {
 
-		scaleratio := c.localscl / getter.localscl
-
 		// If attacking while statetype L
 		if !proj && c.ss.stateType == ST_L && hd.reversal_attr <= 0 {
 			c.hitdef.ltypehit = true
@@ -8690,6 +8734,8 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 			if ghvset {
 				ghv := &getter.ghv
 				cmb := (getter.ss.moveType == MT_H || getter.csf(CSF_gethit)) && !ghv.guarded
+				// Precompute localcoord conversion factor
+				scaleratio := c.localscl / getter.localscl
 
 				// Clear GetHitVars while stacking those that need it
 				// Skipping this step makes the test case in #1891 work, but for different reasons than in Mugen
@@ -9010,9 +9056,11 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 					}
 					// Add extra velocity
 					if getter.kovelocity && !getter.asf(ASF_nokovelocity) {
+						startx := getter.ghv.xvel
+						starty := getter.ghv.yvel
 						if getter.ss.stateType == ST_A {
-							if getter.ghv.xvel < 0 {
-								getter.ghv.xvel += getter.gi().velocity.air.gethit.ko.add[0]
+							if getter.ghv.xvel != 0 {
+								getter.ghv.xvel += getter.gi().velocity.air.gethit.ko.add[0] * SignF(getter.ghv.xvel) * -1
 							}
 							if getter.ghv.yvel <= 0 {
 								getter.ghv.yvel += getter.gi().velocity.air.gethit.ko.add[1]
@@ -9024,8 +9072,8 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 							if getter.ghv.yvel == 0 {
 								getter.ghv.xvel *= getter.gi().velocity.ground.gethit.ko.xmul
 							}
-							if getter.ghv.xvel < 0 {
-								getter.ghv.xvel += getter.gi().velocity.ground.gethit.ko.add[0]
+							if getter.ghv.xvel != 0 {
+								getter.ghv.xvel += getter.gi().velocity.ground.gethit.ko.add[0] * SignF(getter.ghv.xvel) * -1
 							}
 							if getter.ghv.yvel <= 0 {
 								getter.ghv.yvel += getter.gi().velocity.ground.gethit.ko.add[1]
@@ -9034,6 +9082,10 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 								}
 							}
 						}
+						// Save difference to xveladd and yveladd
+						// Not particularly useful, but it's a trigger that was documented in Mugen and did not work
+						getter.ghv.xveladd = getter.ghv.xvel - startx
+						getter.ghv.yveladd = getter.ghv.yvel - starty
 					}
 				} else {
 					getter.ghv.damage = getter.life - 1
@@ -9081,6 +9133,7 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 			}
 		}
 		// Hitspark creation function
+		// This used to be called only when a hitspark is actually created, but with the addition of the MoveHitVar trigger it became useful to save the offset at all times
 		hitspark := func(p1, p2 *Char, animNo int32, ffx string, sparkangle float32) {
 			// This is mostly for offset in projectiles
 			off := [3]float32{pos[0], pos[1], pos[2]}
@@ -9114,52 +9167,55 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 			}
 
 			// Save hitspark position to MoveHitVar
+			// Currently it is saved even if the hit is a projectile
 			c.mhv.sparkxy[0] = off[0]
 			c.mhv.sparkxy[1] = off[1]
 
-			if e, i := c.newExplod(); e != nil {
-				e.anim = c.getAnim(animNo, ffx, true)
-				e.layerno = 1 // e.ontop = true
-				e.sprpriority = math.MinInt32
-				e.ownpal = true
-				e.relativePos = [...]float32{off[0], off[1], off[2]}
-				e.supermovetime = -1
-				e.pausemovetime = -1
-				e.localscl = 1
-				if ffx == "" || ffx == "s" {
-					e.scale = [...]float32{c.localscl, c.localscl}
-				} else if e.anim != nil {
-					e.anim.start_scale[0] *= c.localscl
-					e.anim.start_scale[1] *= c.localscl
+			if animNo >= 0 {
+				if e, i := c.newExplod(); e != nil {
+					e.anim = c.getAnim(animNo, ffx, true)
+					e.layerno = 1 // e.ontop = true
+					e.sprpriority = math.MinInt32
+					e.ownpal = true
+					e.relativePos = [...]float32{off[0], off[1], off[2]}
+					e.supermovetime = -1
+					e.pausemovetime = -1
+					e.localscl = 1
+					if ffx == "" || ffx == "s" {
+						e.scale = [...]float32{c.localscl, c.localscl}
+					} else if e.anim != nil {
+						e.anim.start_scale[0] *= c.localscl
+						e.anim.start_scale[1] *= c.localscl
+					}
+					e.setPos(p1)
+					e.anglerot[0] = sparkangle
+					c.insertExplod(i)
 				}
-				e.setPos(p1)
-				e.anglerot[0] = sparkangle
-				c.insertExplod(i)
 			}
 		}
 		// Play hit sounds and sparks
 		if Abs(hitType) == 1 {
-			if hd.sparkno >= 0 {
-				if hd.reversal_attr > 0 {
-					hitspark(getter, c, hd.sparkno, hd.sparkno_ffx, hd.sparkangle)
-				} else {
-					hitspark(c, getter, hd.sparkno, hd.sparkno_ffx, hd.sparkangle)
-				}
+			//if hd.sparkno >= 0 {
+			if hd.reversal_attr > 0 {
+				hitspark(getter, c, hd.sparkno, hd.sparkno_ffx, hd.sparkangle)
+			} else {
+				hitspark(c, getter, hd.sparkno, hd.sparkno_ffx, hd.sparkangle)
 			}
-			if hd.hitsound[0] >= 0 {
+			//}
+			if hd.hitsound[0] >= 0 && hd.hitsound[1] >= 0 {
 				vo := int32(100)
 				c.playSound(hd.hitsound_ffx, false, 0, hd.hitsound[0], hd.hitsound[1],
 					hd.hitsound_channel, vo, 0, 1, getter.localscl, &getter.pos[0], true, 0, 0, 0, 0, false, false)
 			}
 		} else {
-			if hd.guard_sparkno >= 0 {
-				if hd.reversal_attr > 0 {
-					hitspark(getter, c, hd.guard_sparkno, hd.guard_sparkno_ffx, hd.guard_sparkangle)
-				} else {
-					hitspark(c, getter, hd.guard_sparkno, hd.guard_sparkno_ffx, hd.guard_sparkangle)
-				}
+			//if hd.guard_sparkno >= 0 {
+			if hd.reversal_attr > 0 {
+				hitspark(getter, c, hd.guard_sparkno, hd.guard_sparkno_ffx, hd.guard_sparkangle)
+			} else {
+				hitspark(c, getter, hd.guard_sparkno, hd.guard_sparkno_ffx, hd.guard_sparkangle)
 			}
-			if hd.guardsound[0] >= 0 {
+			//}
+			if hd.guardsound[0] >= 0 && hd.guardsound[1] >= 0 {
 				vo := int32(100)
 				c.playSound(hd.guardsound_ffx, false, 0, hd.guardsound[0], hd.guardsound[1],
 					hd.guardsound_channel, vo, 0, 1, getter.localscl, &getter.pos[0], true, 0, 0, 0, 0, false, false)
@@ -9474,7 +9530,6 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 		getter.unsetCSF(CSF_gethit)
 		getter.enemyNearClear()
 		for _, c := range cl.runOrder {
-			scaleratio := c.localscl / getter.localscl
 
 			// Stop current iteration if this char is disabled
 			if c.scf(SCF_standby) || c.scf(SCF_disabled) {
@@ -9575,6 +9630,8 @@ func (cl *CharList) hitDetection(getter *Char, proj bool) {
 								}
 								// Successful ReversalDef
 								if c.hitdef.reversal_attr > 0 {
+									// Precompute localcoord conversion factor
+									scaleratio := c.localscl / getter.localscl
 									// ReversalDef seems to set an arbitrary collection of get hit variables in Mugen
 									c.powerAdd(c.hitdef.hitgetpower)
 									getter.hitdef.hitflag = 0

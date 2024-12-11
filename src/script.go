@@ -3815,6 +3815,14 @@ func triggerFunctions(l *lua.LState) {
 			l.Push(lua.LNumber(c.hitdef.sparkxy[0]))
 		case "sparky":
 			l.Push(lua.LNumber(c.hitdef.sparkxy[1]))
+		case "pausetime":
+			l.Push(lua.LNumber(c.hitdef.pausetime))
+		case "guard.pausetime":
+			l.Push(lua.LNumber(c.hitdef.guard_pausetime))
+		case "shaketime":
+			l.Push(lua.LNumber(c.hitdef.shaketime))
+		case "guard.shaketime":
+			l.Push(lua.LNumber(c.hitdef.guard_shaketime))
 		default:
 			l.RaiseError("\nInvalid argument: %v\n", strArg(l, 1))
 		}
@@ -3824,10 +3832,6 @@ func triggerFunctions(l *lua.LState) {
 		c := sys.debugWC
 		var ln lua.LNumber
 		switch strArg(l, 1) {
-		case "xveladd":
-			ln = lua.LNumber(0)
-		case "yveladd":
-			ln = lua.LNumber(0)
 		case "fall.envshake.dir":
 			ln = lua.LNumber(0)
 		case "animtype":
@@ -3869,7 +3873,7 @@ func triggerFunctions(l *lua.LState) {
 		case "zoff":
 			ln = lua.LNumber(c.ghv.zoff)
 		case "xvel":
-			ln = lua.LNumber(c.ghv.xvel * c.facing)
+			ln = lua.LNumber(c.ghv.xvel)
 		case "yvel":
 			ln = lua.LNumber(c.ghv.yvel)
 		case "zvel":
@@ -3880,6 +3884,10 @@ func triggerFunctions(l *lua.LState) {
 			ln = lua.LNumber(c.ghv.yaccel)
 		case "zaccel":
 			ln = lua.LNumber(c.ghv.zaccel)
+		case "xveladd":
+			ln = lua.LNumber(c.ghv.xveladd)
+		case "yveladd":
+			ln = lua.LNumber(c.ghv.yveladd)
 		case "hitid", "chainid":
 			ln = lua.LNumber(c.ghv.chainId())
 		case "guarded":
