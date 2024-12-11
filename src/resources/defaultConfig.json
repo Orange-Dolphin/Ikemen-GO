@@ -70,6 +70,7 @@
   "MaxDrawGames": -2,
   "MaxExplod": 512,
   "MaxHelper": 56,
+  "MaxPals": 12,
   "MaxPlayerProjectile": 256,
   "Modules": [],
   "Motif": "data/system.def",
