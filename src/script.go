@@ -296,7 +296,63 @@ func systemScriptInit(l *lua.LState) {
 				a.anim.totaltime = -1
 				a.anim.looptime = 0
 			}
-			l.Push(newUserData(l, a))
+			if boolArg(l, 5) == true {
+				//Copy information
+				uniqueSff := newSff()
+				uniqueSff.header = anim.sff.header
+				uniqueSff.palList.palettes = anim.sff.palList.palettes
+				x:= 0
+				uniqueSff.palList.paletteMap = nil
+				for x < len(anim.sff.palList.paletteMap) {//Copy each value from the palette map individually, without doing this, different sides/members of the same character will share palettes.
+					uniqueSff.palList.paletteMap = append(uniqueSff.palList.paletteMap, x)
+					x = x + 1
+				}
+				uniqueSff.palList.PalTable = anim.sff.palList.PalTable
+				uniqueSff.palList.numcols = anim.sff.palList.numcols
+				uniqueSff.palList.PalTex = anim.sff.palList.PalTex
+				frameAnims := ""
+				x = 0
+				for x < len(anim.frames) {
+					frameAnims = frameAnims + fmt.Sprint(anim.frames[x].Group) + "," + fmt.Sprint(anim.frames[x].Number) + "," + fmt.Sprint(a.anim.frames[x].Xoffset) + "," + fmt.Sprint(anim.frames[x].Yoffset) + "," + fmt.Sprint(anim.frames[x].Time) + "\n"
+					x = x + 1
+				}
+				
+				//Create animation and copy animation data
+				newAnim := NewAnim(uniqueSff, frameAnims)
+				newAnim.window = a.window
+				newAnim.x = a.x
+				newAnim.y = a.y
+				newAnim.xscl = a.xscl
+				newAnim.yscl = a.yscl
+				newAnim.palfx = a.palfx
+				
+				//Information to match the current frame in the animation
+				newAnim.anim.looptime = anim.looptime
+				newAnim.anim.loopstart = anim.loopstart
+				newAnim.anim.current = anim.current
+				newAnim.anim.sumtime = anim.sumtime
+				newAnim.anim.frames = anim.frames
+				newAnim.anim.interpolate_blend_srcalpha = anim.interpolate_blend_srcalpha
+				newAnim.anim.interpolate_scale = anim.interpolate_scale
+				for _, c := range a.anim.frames {
+					
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}] = newSprite()
+					if a.anim.sff.sprites[[...]int16{c.Group, c.Number}].usePal == true {
+						newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = nil
+					} else {
+						newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal
+					}
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1]
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1]
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0]
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0]
+				}
+				l.Push(newUserData(l, newAnim))
+			} else {
+				l.Push(newUserData(l, a))
+			}
 			return 1
 		}
 		return 0
@@ -633,6 +689,12 @@ func systemScriptInit(l *lua.LState) {
 			return 1
 		}
 		l.Push(lua.LBool(false))
+		return 1
+	})
+	luaRegister(l, "changeColorPalette", func(*lua.LState) int {
+		a, _ := toUserData(l, 1).(*Anim)
+		a.anim.palettedata.paletteMap[0] = int(numArg(l, 2)) - 1
+		l.Push(newUserData(l, a))
 		return 1
 	})
 	luaRegister(l, "changeState", func(l *lua.LState) int {
@@ -2969,6 +3031,10 @@ func systemScriptInit(l *lua.LState) {
 	luaRegister(l, "updateVolume", func(l *lua.LState) int {
 		sys.bgm.UpdateVolume()
 		return 0
+	})
+	luaRegister(l, "usePalette", func(l *lua.LState) int {
+		sys.usePalette = boolArg(l, 1)
+		return 1
 	})
 	luaRegister(l, "wavePlay", func(l *lua.LState) int {
 		s, ok := toUserData(l, 1).(*Sound)
