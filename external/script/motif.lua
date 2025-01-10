@@ -331,6 +331,7 @@ local motif =
 		cancel_snd = {100, 2},
 		portrait_anim = -1, --Ikemen feature
 		portrait_spr = {9000, 0},
+		portrait_pal = 0,
 		portrait_offset = {0, 0},
 		portrait_facing = 1,
 		portrait_scale = {1.0, 1.0},
@@ -359,6 +360,7 @@ local motif =
 		p1_face_num = 1, --Ikemen feature
 		p1_face_anim = -1, --Ikemen feature
 		p1_face_spr = {9000, 1},
+		p1_face_pal = 0,
 		p1_face_done_anim = -1, --Ikemen feature
 		p1_face_done_spr = {}, --Ikemen feature
 		p1_face_offset = {0, 0},
@@ -387,6 +389,8 @@ local motif =
 		--p<pn>_member<num>_face_scale = {1.0, 1.0}, --Ikemen feature
 		--p<pn>_member<num>_face_slide_speed = {0, 0}, --Ikemen feature
 		--p<pn>_member<num>_face_slide_dist = {0, 0}, --Ikemen feature
+		--p<pn>_member<num>_face_pal = 0, --Ikemen feature
+		--p<pn>_member<num>_face2_pal = 0, --Ikemen feature
 		p1_face2_anim = -1, --Ikemen feature
 		p1_face2_spr = {}, --Ikemen feature
 		p1_face2_offset = {0, 0}, --Ikemen feature
@@ -659,6 +663,34 @@ local motif =
 		p2_swap_snd = {-1, 0}, --Ikemen feature
 		p1_select_snd = {-1, 0}, --Ikemen feature (data read from character SND)
 		p2_select_snd = {-1, 0}, --Ikemen feature (data read from character SND)
+		paletteselect = 0, --Ikemen feature
+		--p<pn>_member<num>_palette_offset = {-1, -1}, --Ikemen feature
+		--p<pn>_member<num>_palette_font = {-1, -1, -1}, --Ikemen feature
+		--p<pn>_member<num>_palette_scale = {-1, -1}, --Ikemen featurefeature
+		--p<pn>_palette_offset = {-1, -1, -1}, --Ikemen feature
+		--p<pn>_palette_font = {-1, -1, -1}, --Ikemen feature
+		--p<pn>_palette_scale = {-1, -1}, --Ikemen feature
+		p1_palette_next_key = '$F', --Ikemen feature
+		p1_palette_previous_key = '$B', --Ikemen feature
+		p1_palette_accept_key = 'a', --Ikemen feature
+		p1_palette_back_key = 'b', --Ikemen feature
+		p1_palette_random_key = 'c', --Ikemen feature
+		p2_palette_next_key = '$F', --Ikemen feature
+		p2_palette_previous_key = '$B', --Ikemen feature
+		p2_palette_accept_key = 'a', --Ikemen feature
+		p2_palette_back_key = 'b', --Ikemen feature
+		p2_palette_random_key = 'c', --Ikemen feature
+		palette_move_snd = {-1, 0}, --Ikemen featur
+		palette_done_snd = {-1, 0}, --Ikemen featur
+		palette_back_snd = {-1, 0}, --Ikemen featur
+		p1_palette_text_text = "",
+		p1_palette_text_offset = {0, 0},
+		p1_palette_text_font = {-1, 0, -1, 255, 255, 255, -1},
+		p1_palette_text_scale = {1.0, 1.0}, --Ikemen feature	
+		p2_palette_text_text = "",
+		p2_palette_text_offset = {0, 0},
+		p2_palette_text_font = {-1, 0, -1, 255, 255, 255, -1},
+		p2_palette_text_scale = {1.0, 1.0}, --Ikemen feature
 	},
 	selectbgdef =
 	{
@@ -690,6 +722,7 @@ local motif =
 		p1_window = {},
 		p1_spacing = {0, 0}, --Ikemen feature
 		p1_padding = 0, --Ikemen feature
+		p1_pal = 0, --Ikemen feature
 		p2_pos = {0, 0},
 		p2_num = 1, --Ikemen feature
 		p2_anim = -1, --Ikemen feature
@@ -700,6 +733,7 @@ local motif =
 		p2_window = {},
 		p2_spacing = {0, 0}, --Ikemen feature
 		p2_padding = 0, --Ikemen feature
+		p2_pal = 0, --Ikemen feature
 		--p<pn>_member<num>_anim = -1, --Ikemen feature
 		--p<pn>_member<num>_spr = {9000, 1}, --Ikemen feature
 		--p<pn>_member<num>_offset = {0, 0}, --Ikemen feature
@@ -912,6 +946,7 @@ local motif =
 		p1_name_offset = {0, 0},
 		p1_name_font = {-1, 0, 1, 255, 255, 255, -1},
 		p1_name_scale = {1.0, 1.0}, --Ikemen feature
+		p1_pal = 0, --Ikemen feature
 		p2_pos = {0, 0}, --Ikemen feature
 		p2_num = 0, --Ikemen feature
 		p2_anim = -1, --Ikemen feature
@@ -2307,6 +2342,9 @@ function motif.setBaseTrainingInfo()
 	hook.run("motif.setBaseTrainingInfo")
 end
 
+
+
+
 --;===========================================================
 --; PARSE SCREENPACK
 --;===========================================================
@@ -2701,6 +2739,28 @@ for k, v in pairs(motif) do
 		end
 	end
 end
+
+usingPalettes = false
+for i = 1, 3 do
+	if i == 1 then
+		currentSection = 'select_info'
+	elseif i == 2 then
+		currentSection = 'vs_screen'
+	elseif i == 3 then
+		currentSection = 'victory_screen'
+	end
+	for side = 1, 2 do
+		if motif[currentSection]['p' .. side .. '_pal'] == 1 or motif[currentSection]['p' .. side .. '_face_pal'] == 1 or motif[currentSection]['p' .. side .. '_face2_pal'] == 1 then
+			usingPalettes = true
+		end
+		for member = 1, 4 do
+			if motif[currentSection]['p' .. side .. '_member' .. member .. '_face_pal'] == 1 or motif[currentSection]['p' .. side .. '_member' .. member .. '_face2_pal'] == 1 then
+				usingPalettes = true
+			end
+		end
+	end
+end
+usePalette(usingPalettes)
 
 local t_pos = motif.select_info
 for _, v in ipairs({
