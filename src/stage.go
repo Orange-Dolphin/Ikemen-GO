@@ -1052,15 +1052,15 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 		sec[0].ReadF32("boundhighzoomdelta", &s.stageCamera.boundhighzoomdelta)
 		sec[0].ReadF32("verticalfollowzoomdelta", &s.stageCamera.verticalfollowzoomdelta)
 		sec[0].ReadBool("lowestcap", &s.stageCamera.lowestcap)
-		if sys.cfg.Config.ForceStageZoomin == 0 {
-			sec[0].ReadF32("zoomin", &s.stageCamera.zoomin)
-		} else {
-			s.stageCamera.zoomin = sys.cfg.Config.ForceStageZoomin
-		}
-		if sys.cfg.Config.ForceStageZoomout == 0 {
-			sec[0].ReadF32("zoomout", &s.stageCamera.zoomout)
-		} else {
-			s.stageCamera.zoomout = sys.cfg.Config.ForceStageZoomout
+		sec[0].ReadF32("zoomin", &s.stageCamera.zoomin)
+		sec[0].ReadF32("zoomout", &s.stageCamera.zoomout)
+		if s.stageCamera.zoomin == 1 && s.stageCamera.zoomout == 1 {
+			if sys.cfg.Debug.ForceStageZoomin > 0 {
+				s.stageCamera.zoomin = sys.cfg.Debug.ForceStageZoomin
+			}
+			if sys.cfg.Debug.ForceStageZoomout > 0 {
+				s.stageCamera.zoomout = sys.cfg.Debug.ForceStageZoomout
+			}
 		}
 		anchor, _, _ := sec[0].getText("zoomanchor")
 		if strings.ToLower(anchor) == "bottom" {

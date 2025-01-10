@@ -1327,7 +1327,7 @@ func (s *System) action() {
 				}
 				// Some other methods were considered to make the winner decision more fair, like a minimum % difference
 				// But ultimately a direct comparison seems to be the fairest method
-				if math.Round(float64(l[0]*1000)) != math.Round(float64(l[1]*1000)) && // Convert back to 1000 life points scale then round it to reduce calculation errors
+				if math.Round(float64(l[0]*1000)) != math.Round(float64(l[1]*1000)) || // Convert back to 1000 life points scale then round it to reduce calculation errors
 					((l[0] >= float32(1.0)) != (l[1] >= float32(1.0))) { // But make sure the rounding doesn't turn a perfect into a draw game
 					winner := 0
 					if l[0] < l[1] {

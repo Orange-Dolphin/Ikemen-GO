@@ -174,8 +174,6 @@ options.t_itemname = {
 			modifyGameOption('Config.HelperMax', 56)
 			modifyGameOption('Config.PlayerProjectileMax', 256)
 			--modifyGameOption('Config.ZoomActive', true)
-			--modifyGameOption('Config.ForceStageZoomout', 0)
-			--modifyGameOption('Config.ForceStageZoomin', 0)
 			--modifyGameOption('Config.EscOpensMenu', true)
 			--modifyGameOption('Config.BackgroundLoading', false) --TODO: not implemented
 			--modifyGameOption('Config.FirstRun', false)
@@ -193,6 +191,8 @@ options.t_itemname = {
 			--modifyGameOption('Debug.Font', "font/debug.def")
 			--modifyGameOption('Debug.FontScale', 1.0)
 			--modifyGameOption('Debug.StartStage', "stages/stage0-720.def")
+			--modifyGameOption('Debug.ForceStageZoomout', 0)
+			--modifyGameOption('Debug.ForceStageZoomin', 0)
 			modifyGameOption('Video.RenderMode', "OpenGL 3.2")
 			modifyGameOption('Video.GameWidth', 640)
 			modifyGameOption('Video.GameHeight', 480)
