@@ -244,6 +244,7 @@ type System struct {
 	keyString               string
 	timerCount              []int32
 	cmdFlags                map[string]string
+	usePalette              bool
 	//FLAC_FrameWait          int
 
 	// Localcoord sceenpack
@@ -2570,6 +2571,7 @@ type SelectChar struct {
 	pal            []int32
 	pal_defaults   []int32
 	pal_keymap     []int32
+	palfiles       []string
 	localcoord     int32
 	portrait_scale float32
 	cns_scale      [2]float32
@@ -2764,6 +2766,7 @@ func (s *Select) addChar(def string) {
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
+						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
 					}
 				}
 				movelist = is["movelist"]
@@ -2783,6 +2786,7 @@ func (s *Select) addChar(def string) {
 				for i := 1; i <= MaxPalNo; i++ {
 					if is[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
+						sc.palfiles = append(sc.palfiles, is[fmt.Sprintf("pal%v", i)])
 					}
 				}
 				movelist = is["movelist"]
@@ -2908,6 +2912,14 @@ func (s *Select) addChar(def string) {
 			sc.anims.addSprite(sc.sff, k[0], k[1])
 		}
 	}
+	
+	// transfer palettes to animation
+	for c, _ := range sc.anims {
+		sc.anims[c].palettedata.palettes = sc.sff.palList.palettes
+		sc.anims[c].palettedata.paletteMap = sc.sff.palList.paletteMap
+		sc.anims[c].palettedata.PalTable = sc.sff.palList.PalTable
+	}
+	
 	// read movelist
 	if len(movelist) > 0 {
 		LoadFile(&movelist, []string{def, "", "data/"}, func(file string) error {
