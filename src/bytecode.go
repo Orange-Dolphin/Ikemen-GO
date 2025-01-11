@@ -1499,7 +1499,7 @@ func (be BytecodeExp) run(c *Char) BytecodeValue {
 			sys.bcStack.Push(BytecodeSF())
 			i += int(*(*int32)(unsafe.Pointer(&be[i]))) + 4
 		case OC_helperindex:
-			if c = c.getPlayerHelperIndex(sys.bcStack.Pop().ToI(), false); c != nil {
+			if c = c.getPlayerHelperIndex(sys.bcStack.Pop().ToI(), true); c != nil {
 				i += 4
 				continue
 			}
@@ -11717,13 +11717,10 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 		case modifyStageVar_shadow_intensity:
 			s.sdw.intensity = Clamp(exp[0].evalI(c), 0, 255)
 		case modifyStageVar_shadow_color:
-			// mugen 1.1 removed support for color
-			if (s.mugenver[0] != 1 || s.mugenver[1] != 1) && (s.sff.header.Ver0 != 2 || s.sff.header.Ver2 != 1) {
-				r := Clamp(exp[0].evalI(c), 0, 255)
-				g := Clamp(exp[1].evalI(c), 0, 255)
-				b := Clamp(exp[2].evalI(c), 0, 255)
-				s.sdw.color = uint32(r<<16 | g<<8 | b)
-			}
+			r := Clamp(exp[0].evalI(c), 0, 255)
+			g := Clamp(exp[1].evalI(c), 0, 255)
+			b := Clamp(exp[2].evalI(c), 0, 255)
+			s.sdw.color = uint32(r<<16 | g<<8 | b)
 		case modifyStageVar_shadow_yscale:
 			s.sdw.yscale = exp[0].evalF(c)
 		case modifyStageVar_shadow_fade_range:
@@ -11742,13 +11739,10 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 		case modifyStageVar_reflection_xshear:
 			s.reflection.xshear = exp[0].evalF(c)
 		case modifyStageVar_reflection_color:
-			// mugen 1.1 removed support for color
-			if (s.mugenver[0] != 1 || s.mugenver[1] != 1) && (s.sff.header.Ver0 != 2 || s.sff.header.Ver2 != 1) {
-				r := Clamp(exp[0].evalI(c), 0, 255)
-				g := Clamp(exp[1].evalI(c), 0, 255)
-				b := Clamp(exp[2].evalI(c), 0, 255)
-				s.reflection.color = uint32(r<<16 | g<<8 | b)
-			}
+			r := Clamp(exp[0].evalI(c), 0, 255)
+			g := Clamp(exp[1].evalI(c), 0, 255)
+			b := Clamp(exp[2].evalI(c), 0, 255)
+			s.reflection.color = uint32(r<<16 | g<<8 | b)
 		case modifyStageVar_reflection_offset:
 			s.reflection.offset[0] = exp[0].evalF(c)
 			s.reflection.offset[1] = exp[1].evalF(c)

@@ -222,6 +222,7 @@ func toLValue(l *lua.LState, v interface{}) lua.LValue {
 // Register external functions to be called from Lua scripts
 func systemScriptInit(l *lua.LState) {
 	triggerFunctions(l)
+	deprecatedFunctions(l)
 	luaRegister(l, "addChar", func(l *lua.LState) int {
 		for _, c := range strings.Split(strings.TrimSpace(strArg(l, 1)), "\n") {
 			c = strings.Trim(c, "\r")
@@ -835,7 +836,7 @@ func systemScriptInit(l *lua.LState) {
 		if !ok {
 			userDataError(l, 1, cl)
 		}
-		if cl.Input(int(numArg(l, 2))-1, 1, 0, 0) {
+		if cl.Input(int(numArg(l, 2))-1, 1, 0, 0, true) {
 			cl.Step(1, false, false, 0)
 		}
 		return 0
@@ -3167,7 +3168,7 @@ func triggerFunctions(l *lua.LState) {
 		if !nilArg(l, 1) {
 			id = int32(numArg(l, 1))
 		}
-		if c := sys.debugWC.getPlayerHelperIndex(id, false); c != nil {
+		if c := sys.debugWC.getPlayerHelperIndex(id, true); c != nil {
 			sys.debugWC, ret = c, true
 		}
 		l.Push(lua.LBool(ret))
@@ -5821,5 +5822,167 @@ func triggerFunctions(l *lua.LState) {
 		}
 		l.Push(lua.LNumber(winp))
 		return 1
+	})
+}
+
+// Legacy functions that may be removed in future, once script refactoring is finished
+func deprecatedFunctions(l *lua.LState) {
+	// deprecated by changeAnim
+	luaRegister(l, "charChangeAnim", func(l *lua.LState) int {
+		// pn, anim_no, anim_elem, ffx
+		pn := int(numArg(l, 1))
+		an := int32(numArg(l, 2))
+		if pn >= 1 && pn <= len(sys.chars) && len(sys.chars[pn-1]) > 0 {
+			c := sys.chars[pn-1]
+			if c[0].selfAnimExist(BytecodeInt(an)) == BytecodeBool(true) {
+				ffx := false
+				if l.GetTop() >= 4 {
+					ffx = boolArg(l, 4)
+				}
+				preffix := ""
+				if ffx {
+					preffix = "f"
+				}
+				c[0].changeAnim(an, c[0].playerNo, preffix)
+				if l.GetTop() >= 3 {
+					c[0].setAnimElem(int32(numArg(l, 3)))
+				}
+				l.Push(lua.LBool(true))
+				return 1
+			}
+		}
+		l.Push(lua.LBool(false))
+		return 1
+	})
+	// deprecated by changeState
+	luaRegister(l, "charChangeState", func(l *lua.LState) int {
+		// pn, state_no
+		pn := int(numArg(l, 1))
+		st := int32(numArg(l, 2))
+		if pn >= 1 && pn <= len(sys.chars) && len(sys.chars[pn-1]) > 0 {
+			c := sys.chars[pn-1]
+			if st == -1 {
+				for _, ch := range c {
+					ch.setSCF(SCF_disabled)
+				}
+			} else if c[0].selfStatenoExist(BytecodeInt(st)) == BytecodeBool(true) {
+				for _, ch := range c {
+					if ch.scf(SCF_disabled) {
+						ch.unsetSCF(SCF_disabled)
+					}
+				}
+				c[0].changeState(st, -1, -1, "")
+				l.Push(lua.LBool(true))
+				return 1
+			}
+		}
+		l.Push(lua.LBool(false))
+		return 1
+	})
+	// deprecated by mapSet
+	luaRegister(l, "charMapSet", func(*lua.LState) int {
+		// pn, map_name, value, map_type
+		pn := int(numArg(l, 1))
+		var scType int32
+		if l.GetTop() >= 4 && strArg(l, 4) == "add" {
+			scType = 1
+		}
+		if pn >= 1 && pn <= len(sys.chars) && len(sys.chars[pn-1]) > 0 {
+			sys.chars[pn-1][0].mapSet(strArg(l, 2), float32(numArg(l, 3)), scType)
+		}
+		return 0
+	})
+	// deprecated by playSnd
+	luaRegister(l, "charSndPlay", func(l *lua.LState) int {
+		// pn, group_no, sound_no, volumescale, commonSnd, channel, lowpriority, freqmul, loop, pan
+		pn := int(numArg(l, 1))
+		if pn < 1 || pn > len(sys.chars) || len(sys.chars[pn-1]) == 0 {
+			l.RaiseError("\nPlayer not found: %v\n", pn)
+		}
+		f, lw, lp, stopgh, stopcs := false, false, false, false, false
+		var g, n, ch, vo, priority, lc int32 = -1, 0, -1, 100, 0, 0
+		var loopstart, loopend, startposition int = 0, 0, 0
+		var p, fr float32 = 0, 1
+		x := &sys.chars[pn-1][0].pos[0]
+		ls := sys.chars[pn-1][0].localscl
+		if l.GetTop() >= 2 {
+			g = int32(numArg(l, 2))
+		}
+		if l.GetTop() >= 3 {
+			n = int32(numArg(l, 3))
+		}
+		if l.GetTop() >= 4 {
+			vo = int32(numArg(l, 4))
+		}
+		if l.GetTop() >= 5 {
+			f = boolArg(l, 5)
+		}
+		if l.GetTop() >= 6 {
+			ch = int32(numArg(l, 6))
+		}
+		if l.GetTop() >= 7 {
+			lw = boolArg(l, 7)
+		}
+		if l.GetTop() >= 8 {
+			fr = float32(numArg(l, 8))
+		}
+		if l.GetTop() >= 9 {
+			lp = boolArg(l, 9)
+		}
+		if l.GetTop() >= 10 {
+			p = float32(numArg(l, 10))
+		}
+		if l.GetTop() >= 11 {
+			priority = int32(numArg(l, 11))
+		}
+		if l.GetTop() >= 12 {
+			loopstart = int(numArg(l, 12))
+		}
+		if l.GetTop() >= 13 {
+			loopend = int(numArg(l, 13))
+		}
+		if l.GetTop() >= 14 {
+			startposition = int(numArg(l, 14))
+		}
+		if l.GetTop() >= 15 {
+			lc = int32(numArg(l, 15))
+		}
+		if l.GetTop() >= 15 { // StopOnGetHit
+			stopgh = boolArg(l, 16)
+		}
+		if l.GetTop() >= 16 { // StopOnChangeState
+			stopcs = boolArg(l, 17)
+		}
+		preffix := ""
+		if f {
+			preffix = "f"
+		}
+
+		// If the loopcount is 0, then read the loop parameter
+		if lc == 0 {
+			if lp {
+				sys.chars[pn-1][0].playSound(preffix, lw, -1, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
+			} else {
+				sys.chars[pn-1][0].playSound(preffix, lw, 0, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
+			}
+
+			// Otherwise, read the loopcount parameter directly
+		} else {
+			sys.chars[pn-1][0].playSound(preffix, lw, lc, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
+		}
+		return 0
+	})
+	// deprecated by stopSnd, stopAllSound
+	luaRegister(l, "charSndStop", func(l *lua.LState) int {
+		if l.GetTop() == 0 {
+			sys.stopAllSound()
+			return 0
+		}
+		pn := int(numArg(l, 1))
+		if pn < 1 || pn > len(sys.chars) || len(sys.chars[pn-1]) == 0 {
+			l.RaiseError("\nPlayer not found: %v\n", pn)
+		}
+		sys.chars[pn-1][0].soundChannels.SetSize(0)
+		return 0
 	})
 }
