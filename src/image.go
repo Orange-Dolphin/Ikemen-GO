@@ -1440,6 +1440,7 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 					if h.Ver0 == 1 {
 						spriteList[i].Pal = pl.Get(spriteList[i].palidx)
 						if spriteList[i].palidx == 0 || (spriteList[i].Group == 0 && spriteList[i].Number == 0) {
+							spriteList[i].palidx = 0
 							spriteList[i].usePal = true
 						}
 						if spriteList[i].palidx >= MaxPalNo { //just in case
