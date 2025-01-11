@@ -1416,6 +1416,7 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 						dst.shareCopy(src)
 					}
 					spriteList[i].palidx = spriteList[int(indexOfPrevious)].palidx
+					spriteList[i].usePal = spriteList[int(indexOfPrevious)].usePal
 					//} else if int(indexOfPrevious) < i {
 					// TODO: read previously skipped sprite and palette
 				} else {
