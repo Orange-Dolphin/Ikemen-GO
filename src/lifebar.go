@@ -392,13 +392,15 @@ func (hb *HealthBar) step(ref int, hbr *HealthBar) {
 	hb.mid.Action()
 
 	// Multiple front elements - red life
-	var rv int32
-	for k := range hb.red {
-		if k > rv && redVal >= k {
-			rv = k
+	if sys.lifebar.redlifebar {
+		var rv int32
+		for k := range hb.red {
+			if k > rv && redVal >= k {
+				rv = k
+			}
 		}
+		hb.red[rv].Action()
 	}
-	hb.red[rv].Action()
 
 	// Multiple front elements - life
 	var fv float32
@@ -464,8 +466,8 @@ func (hb *HealthBar) draw(layerno int16, ref int, hbr *HealthBar, f []*Fnt) {
 	mr[2] -= Min(mr[2], lr[2])
 	//rr[2] -= Min(rr[2], lr[2])
 
-	var rv int32
 	if sys.lifebar.redlifebar {
+		var rv int32
 		for k := range hb.red {
 			if k > rv && redval >= k {
 				rv = k
@@ -1629,6 +1631,7 @@ func (co *LifeBarCombo) step(combo, damage int32, percentage float32, dizzy bool
 	co.bg.Action()
 	co.top.Action()
 
+	// Update team combo tracker
 	if combo > 0 {
 		combo = co.combo
 	} else {
@@ -1652,22 +1655,21 @@ func (co *LifeBarCombo) step(combo, damage int32, percentage float32, dizzy bool
 		co.resttime--
 	}
 
+	// Update if number of hits or total damage change
 	if combo >= 2 {
-		if co.oldhit != combo {
+		if co.oldhit != combo || co.olddmg != damage {
 			co.curhit = combo
+			co.curdmg = damage
+			co.curpct = percentage
 			co.resttime = co.displaytime
-			if co.counter_shake {
+			if co.counter_shake && co.oldhit != combo {
 				co.shaketime = co.counter_time
-			}
-			if co.olddmg != damage {
-				co.curdmg, co.olddmg = damage, damage // We probably don't need the "old" var in the current state of the code
-			}
-			if co.oldpct != percentage {
-				co.curpct, co.oldpct = percentage, percentage // We probably don't need the "old" var in the current state of the code
 			}
 		}
 	}
 	co.oldhit = combo
+	co.olddmg = damage
+	co.oldpct = percentage
 }
 
 func (co *LifeBarCombo) reset() {
@@ -1706,17 +1708,19 @@ func (co *LifeBarCombo) draw(layerno int16, f []*Fnt, side int) {
 	if co.text.font[0] >= 0 && int(co.text.font[0]) < len(f) && f[co.text.font[0]] != nil {
 		text := strings.Replace(co.text.text, "%i", fmt.Sprintf("%v", co.curhit), 1)
 		text = strings.Replace(text, "%d", fmt.Sprintf("%v", co.curdmg), 1)
-		// split float value, round to decimal place
-		s := strings.Split(fmt.Sprintf("%.[2]*[1]f", co.curpct, co.places), ".")
-		// decimal separator
+		// Truncate the percentage to avoid rounding to 100% unless the enemy is defeated
+		truncatedPct := math.Floor(float64(co.curpct)*math.Pow10(int(co.places))) / math.Pow10(int(co.places))
+		// Split float value
+		s := strings.Split(fmt.Sprintf("%.[2]*[1]f", truncatedPct, co.places), ".")
+		// Decimal separator
 		if co.places > 0 {
 			if len(s) > 1 {
 				s[0] = s[0] + co.separator + s[1]
 			}
 		}
-		// replace %p with formatted string
+		// Replace %p with formatted string
 		text = strings.Replace(text, "%p", s[0], 1)
-		// split on new line
+		// Split on new line
 		for k, v := range strings.Split(text, "\\n") {
 			if side == 1 {
 				if lt := float32(f[co.text.font[0]].TextWidth(v, co.text.font[1])) * co.text.lay.scale[0] * sys.lifebar.fnt_scale; lt > length {
@@ -3375,7 +3379,7 @@ func (mo *LifeBarMode) draw(layerno int16, f []*Fnt) {
 }
 
 type Lifebar struct {
-	Def        string
+	def        string
 	name       string
 	nameLow    string
 	author     string
@@ -3474,9 +3478,11 @@ func loadLifebar(def string) (*Lifebar, error) {
 	filesflg := true
 	ffx := newFightFx()
 	// Load Common FX first
-	for _, def := range sys.cfg.Common.Fx {
-		if err := loadFightFx(def); err != nil {
-			return nil, err
+	for _, key := range SortedKeys(sys.cfg.Common.Fx) {
+		for _, v := range sys.cfg.Common.Fx[key] {
+			if err := loadFightFx(v); err != nil {
+				return nil, err
+			}
 		}
 	}
 	for i < len(lines) {
@@ -4024,12 +4030,12 @@ func loadLifebar(def string) (*Lifebar, error) {
 			}
 		}
 	}
-	l.Def = def
+	l.def = def
 	return l, nil
 }
 
 func (l *Lifebar) reloadLifebar() error {
-	lb, err := loadLifebar(l.Def)
+	lb, err := loadLifebar(l.def)
 	if err != nil {
 		return err
 	}
@@ -4294,8 +4300,10 @@ func (l *Lifebar) draw(layerno int16) {
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					l.hb[l.ref[ti]][index].bgDraw(layerno)
-					l.hb[l.ref[ti]][index].draw(layerno, v, l.hb[l.ref[ti]][v], l.fnt[:])
+					if !sys.chars[v][0].asf(ASF_nolifebardisplay) {
+						l.hb[l.ref[ti]][index].bgDraw(layerno)
+						l.hb[l.ref[ti]][index].draw(layerno, v, l.hb[l.ref[ti]][v], l.fnt[:])
+					}
 				}
 			}
 			// PowerBar
@@ -4319,40 +4327,52 @@ func (l *Lifebar) draw(layerno int16) {
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					l.gb[l.ref[ti]][index].bgDraw(layerno)
-					l.gb[l.ref[ti]][index].draw(layerno, v, l.gb[l.ref[ti]][v], l.fnt[:])
+					if !sys.chars[v][0].asf(ASF_noguardbardisplay) {
+						l.gb[l.ref[ti]][index].bgDraw(layerno)
+						l.gb[l.ref[ti]][index].draw(layerno, v, l.gb[l.ref[ti]][v], l.fnt[:])
+					}
 				}
 			}
 			// StunBar
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					l.sb[l.ref[ti]][index].bgDraw(layerno)
-					l.sb[l.ref[ti]][index].draw(layerno, v, l.sb[l.ref[ti]][v], l.fnt[:])
+					if !sys.chars[v][0].asf(ASF_nostunbardisplay) {
+						l.sb[l.ref[ti]][index].bgDraw(layerno)
+						l.sb[l.ref[ti]][index].draw(layerno, v, l.sb[l.ref[ti]][v], l.fnt[:])
+					}
 				}
 			}
 			// LifeBarFace
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					l.fa[l.ref[ti]][index].bgDraw(layerno)
-					l.fa[l.ref[ti]][index].draw(layerno, v, l.fa[l.ref[ti]][v])
+					if !sys.chars[v][0].asf(ASF_nofacedisplay) {
+						l.fa[l.ref[ti]][index].bgDraw(layerno)
+						l.fa[l.ref[ti]][index].draw(layerno, v, l.fa[l.ref[ti]][v])
+					}
 				}
 			}
 			// LifeBarName
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					l.nm[l.ref[ti]][index].bgDraw(layerno)
-					l.nm[l.ref[ti]][index].draw(layerno, v, l.fnt[:], ti)
+					if !sys.chars[v][0].asf(ASF_nonamedisplay) {
+						l.nm[l.ref[ti]][index].bgDraw(layerno)
+						l.nm[l.ref[ti]][index].draw(layerno, v, l.fnt[:], ti)
+					}
 				}
 			}
 			// LifeBarTime
 			l.ti.bgDraw(layerno)
 			l.ti.draw(layerno, l.fnt[:])
 			// LifeBarWinIcon
-			for i := range l.wi {
-				l.wi[i].draw(layerno, l.fnt[:], i)
+			for ti := range l.wi {
+				for _, v := range l.order[ti] {
+					if !sys.chars[v][0].asf(ASF_nowinicondisplay) {
+						l.wi[ti].draw(layerno, l.fnt[:], ti)
+					}
+				}
 			}
 			// LifeBarRatio
 			for ti, tm := range sys.tmode {

@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed" // Support for go:embed resources
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -41,13 +42,13 @@ type Config struct {
 	Def     string
 	IniFile *ini.File
 	Common  struct {
-		Air     []string `ini:"Air"`
-		Cmd     []string `ini:"Cmd"`
-		Const   []string `ini:"Const"`
-		States  []string `ini:"States"`
-		Fx      []string `ini:"Fx"`
-		Modules []string `ini:"Modules"`
-		Lua     []string `ini:"Lua"`
+		Air     map[string][]string `ini:"map:^(?i)Air[0-9]*$" lua:"Air"`
+		Cmd     map[string][]string `ini:"map:^(?i)Cmd[0-9]*$" lua:"Cmd"`
+		Const   map[string][]string `ini:"map:^(?i)Const[0-9]*$" lua:"Const"`
+		States  map[string][]string `ini:"map:^(?i)States[0-9]*$" lua:"States"`
+		Fx      map[string][]string `ini:"map:^(?i)Fx[0-9]*$" lua:"Fx"`
+		Modules map[string][]string `ini:"map:^(?i)Modules[0-9]*$" lua:"Modules"`
+		Lua     map[string][]string `ini:"map:^(?i)Lua[0-9]*$" lua:"Lua"`
 	} `ini:"Common"`
 	Options struct {
 		Difficulty int     `ini:"Difficulty"`
@@ -250,7 +251,7 @@ func loadConfig(def string) (*Config, error) {
 	}
 	var c Config
 	c.Def = def
-	c.initMaps()
+	c.initStruct()
 
 	// Iterate through all sections
 	for _, section := range iniFile.Sections() {
@@ -285,11 +286,10 @@ func loadConfig(def string) (*Config, error) {
 	return &c, nil
 }
 
-// Initialize maps
-func (c *Config) initMaps() {
-	c.Keys = make(map[string]*KeysProperties)
-	c.Joystick = make(map[string]*KeysProperties)
-	c.Netplay.IP = make(map[string]string)
+// Initialize struct
+func (c *Config) initStruct() {
+	initMaps(reflect.ValueOf(c).Elem())
+	//applyDefaultsToValue(reflect.ValueOf(c).Elem())
 }
 
 // Normalize values

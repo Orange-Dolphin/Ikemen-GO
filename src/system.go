@@ -1975,6 +1975,11 @@ func (s *System) fight() (reload bool) {
 	// Reset variables
 	s.gameTime, s.paused, s.accel = 0, false, 1
 	s.aiInput = [len(s.aiInput)]AiInput{}
+	if sys.netInput != nil {
+		s.clsnDraw = false
+		s.debugDraw = false
+		s.statusDraw = false
+	}
 	// Defer resetting variables on return
 	defer func() {
 		s.oldNextAddTime = 1
@@ -2343,6 +2348,14 @@ func (s *System) fight() (reload bool) {
 		// Update game state
 		s.action()
 
+		debugInput()
+		if !s.addFrameTime(s.turbo) {
+			if !s.eventUpdate() {
+				return false
+			}
+			continue
+		}
+
 		// F4 pressed to restart round
 		if s.roundResetFlg && !s.postMatchFlg {
 			sys.paused = false
@@ -2353,13 +2366,6 @@ func (s *System) fight() (reload bool) {
 			return true
 		}
 
-		debugInput()
-		if !s.addFrameTime(s.turbo) {
-			if !s.eventUpdate() {
-				return false
-			}
-			continue
-		}
 		// Render frame
 		if !s.frameSkip {
 			x, y, scl := s.cam.Pos[0], s.cam.Pos[1], s.cam.Scale/s.cam.BaseScale()
@@ -2398,9 +2404,11 @@ func (s *System) fight() (reload bool) {
 			s.drawTop()
 		}
 		// Lua code is executed after drawing the fade effects, so that the menus are on top of them
-		for _, str := range s.cfg.Common.Lua {
-			if err := s.luaLState.DoString(str); err != nil {
-				s.luaLState.RaiseError(err.Error())
+		for _, key := range SortedKeys(sys.cfg.Common.Lua) {
+			for _, v := range sys.cfg.Common.Lua[key] {
+				if err := s.luaLState.DoString(v); err != nil {
+					s.luaLState.RaiseError(err.Error())
+				}
 			}
 		}
 		// Render debug elements

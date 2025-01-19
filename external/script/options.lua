@@ -31,8 +31,8 @@ local t_commonFilesOriginal = gameOption('Common')
 function options.f_saveCfg(reload)
     -- Restore the original content of the common files
 	local t_commonFiles = gameOption('Common')
-	for k, v in pairs(t_commonFilesOriginal) do
-		modifyGameOption('Common.' .. k, v)
+	for _, k in ipairs({'Air', 'Cmd', 'Const', 'States', 'Fx', 'Modules', 'Lua'}) do
+		modifyGameOption('Common.' .. k, t_commonFilesOriginal[k][k:lower()] or {})
 	end
     -- Save the current configuration to 'config.ini'
 	saveGameOption(main.flags['-config'])
@@ -42,8 +42,8 @@ function options.f_saveCfg(reload)
 		os.exit()
 	end
     -- Reapply modified common file arrays after saving
-	for k, v in pairs(t_commonFiles) do
-		modifyGameOption('Common.' .. k, v)
+	for _, k in ipairs({'Air', 'Cmd', 'Const', 'States', 'Fx', 'Modules', 'Lua'}) do
+		modifyGameOption('Common.' .. k, t_commonFiles[k][k:lower()] or {})
 	end
 end
 
@@ -63,6 +63,12 @@ function options.f_displayRatio(value)
 	return ret .. '%'
 end
 
+motif.languages.languages = {}
+for k, _ in pairs(motif.languages) do
+	if k ~= "languages" then
+		table.insert(motif.languages.languages, k)
+	end
+end
 local function changeLanguageSetting(val)
 	sndPlay(motif.files.snd_data, motif.option_info.cursor_move_snd[1], motif.option_info.cursor_move_snd[2])
 	languageCounter = 0
@@ -278,12 +284,10 @@ options.t_itemname = {
 	['language'] = function(t, item, cursorPosY, moveTxt)
 		if main.f_input(main.t_players, {'$F'}) then
 			changeLanguageSetting(0)
-			LanguageName = motif.languages[gameOption('Config.Language')]
-			t.items[item].vardisplay = LanguageName or gameOption('Config.Language')
+			t.items[item].vardisplay = motif.languages[gameOption('Config.Language')] or gameOption('Config.Language')
 		elseif main.f_input(main.t_players, {'$B'}) then
 			changeLanguageSetting(-2)
-			LanguageName = motif.languages[gameOption('Config.Language')]
-			t.items[item].vardisplay = LanguageName or gameOption('Config.Language')
+			t.items[item].vardisplay = motif.languages[gameOption('Config.Language')] or gameOption('Config.Language')
 		end
 		return true
 	end,

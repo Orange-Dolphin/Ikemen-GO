@@ -1789,21 +1789,9 @@ func (be BytecodeExp) run(c *Char) BytecodeValue {
 			// In Winmugen a helper's PalNo is always 1
 			// That behavior has no apparent benefits and even Mugen 1.0 compatibility mode does not keep it
 		case OC_pos_x:
-			var bindVelx float32
-			if c.bindToId > 0 && !math.IsNaN(float64(c.bindPos[0])) && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
-				if sys.playerID(c.bindToId) != nil {
-					bindVelx = c.vel[0]
-				}
-			}
-			sys.bcStack.PushF(((c.pos[0]+bindVelx)*(c.localscl/oc.localscl) - sys.cam.Pos[0]/oc.localscl))
+			sys.bcStack.PushF((c.pos[0]*(c.localscl/oc.localscl) - sys.cam.Pos[0]/oc.localscl))
 		case OC_pos_y:
-			var bindVely float32
-			if c.bindToId > 0 && !math.IsNaN(float64(c.bindPos[1])) && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
-				if sys.playerID(c.bindToId) != nil {
-					bindVely = c.vel[1]
-				}
-			}
-			sys.bcStack.PushF((c.pos[1] + bindVely - c.groundLevel - c.platformPosY) * (c.localscl / oc.localscl))
+			sys.bcStack.PushF((c.pos[1] - c.groundLevel - c.platformPosY) * (c.localscl / oc.localscl))
 		case OC_power:
 			sys.bcStack.PushI(c.getPower())
 		case OC_powermax:
@@ -4446,7 +4434,7 @@ func (sc tagOut) Run(c *Char, _ []int32) bool {
 	}
 	if tagSCF == 1 {
 		crun.setSCF(SCF_standby)
-		sys.charList.p2enemyDelete(crun)
+		// sys.charList.p2enemyDelete(crun)
 	}
 	if partnerNo != -1 && crun.partnerV2(partnerNo) != nil {
 		partner := crun.partnerV2(partnerNo)
@@ -4454,7 +4442,7 @@ func (sc tagOut) Run(c *Char, _ []int32) bool {
 		if partnerStateNo >= 0 {
 			partner.changeState(partnerStateNo, -1, -1, "")
 		}
-		sys.charList.p2enemyDelete(partner)
+		// sys.charList.p2enemyDelete(partner)
 	}
 	return false
 }
@@ -4652,7 +4640,7 @@ func (sc helper) Run(c *Char, _ []int32) bool {
 			ht := exp[0].evalI(c)
 			switch ht {
 			case 1:
-				h.player = true
+				h.playerFlag = true
 			case 2:
 				h.hprojectile = true // Currently unused
 			}
@@ -11866,10 +11854,15 @@ func (sc modifyPlayer) Run(c *Char, _ []int32) bool {
 			crun.guardPointsMax = gp
 			crun.guardPoints = Clamp(crun.guardPoints, 0, crun.guardPointsMax)
 		case modifyPlayer_teamside:
-			ts := int(exp[0].evalI(c))
-			if ts >= 0 && ts <= 2 {
-				ts -= 1 // Internally the teamside goes from -1 to 1
+			ts := int(exp[0].evalI(c)) - 1 // Internally the teamside starts at -1 instead of 0
+			if ts >= -1 && ts <= 1 && ts != crun.teamside {
 				crun.teamside = ts
+				// Reevaluate alliances
+				if crun.playerFlag {
+					sys.charList.enemyNearChanged = true
+				} else {
+					crun.enemyNearP2Clear()
+				}
 			}
 		case modifyPlayer_displayname:
 			dn := string(*(*[]byte)(unsafe.Pointer(&exp[0])))

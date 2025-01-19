@@ -3984,8 +3984,20 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_noturntarget))
 		case "noinput":
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_noinput))
+		case "nolifebardisplay":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_nolifebardisplay))
 		case "nopowerbardisplay":
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_nopowerbardisplay))
+		case "noguardbardisplay":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_noguardbardisplay))
+		case "nostunbardisplay":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_nostunbardisplay))
+		case "nofacedisplay":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_nofacedisplay))
+		case "nonamedisplay":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_nonamedisplay))
+		case "nowinicondisplay":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_nowinicondisplay))
 		case "autoguard":
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_autoguard))
 		case "animatehitpause":
@@ -6716,7 +6728,7 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 		return nil, err
 	}
 	lines, i, cmd, stcommon := SplitAndTrim(str, "\n"), 0, "", ""
-	var st [11]string
+	var st []string
 	info, files := true, true
 	for i < len(lines) {
 		// Parse each ini section
@@ -6782,10 +6794,14 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 			if files {
 				files = false
 				cmd, stcommon = is["cmd"], is["stcommon"]
-				st[0] = is["st"]
-				for i := 1; i < len(st); i++ {
-					st[i] = is[fmt.Sprintf("st%v", i-1)]
+				re := regexp.MustCompile(`^st[0-9]*$`)
+				// Sorted starting with "st" and followed by "st<num>" in natural order
+				for _, v := range SortedKeys(is) {
+					if re.MatchString(v) {
+						st = append(st, is[v])
+					}
 				}
+
 			}
 		}
 	}
@@ -6804,16 +6820,18 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 			return nil, err
 		}
 	}
-	for _, s := range sys.cfg.Common.Cmd {
-		if err := LoadFile(&s, []string{def, sys.motifDir, sys.lifebar.Def, "", "data/"}, func(filename string) error {
-			txt, err := LoadText(filename)
-			if err != nil {
-				return err
+	for _, key := range SortedKeys(sys.cfg.Common.Cmd) {
+		for _, v := range sys.cfg.Common.Cmd[key] {
+			if err := LoadFile(&v, []string{def, sys.motifDir, sys.lifebar.def, "", "data/"}, func(filename string) error {
+				txt, err := LoadText(filename)
+				if err != nil {
+					return err
+				}
+				str += "\n" + txt
+				return nil
+			}); err != nil {
+				return nil, err
 			}
-			str += "\n" + txt
-			return nil
-		}); err != nil {
-			return nil, err
 		}
 	}
 	lines, i = SplitAndTrim(str, "\n"), 0
@@ -6942,10 +6960,12 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 		}
 	}
 	// Compile common states
-	for _, s := range sys.cfg.Common.States {
-		if err := c.stateCompile(states, s, []string{def, sys.motifDir, sys.lifebar.Def, "", "data/"},
-			false, constants); err != nil {
-			return nil, err
+	for _, key := range SortedKeys(sys.cfg.Common.States) {
+		for _, v := range sys.cfg.Common.States[key] {
+			if err := c.stateCompile(states, v, []string{def, sys.motifDir, sys.lifebar.def, "", "data/"},
+				false, constants); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return states, nil
