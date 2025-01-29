@@ -81,7 +81,6 @@ func newCompiler() *Compiler {
 		"makedust":           c.makeDust,
 		"modifyexplod":       c.modifyExplod,
 		"movehitreset":       c.moveHitReset,
-		"movehitset":         c.moveHitSet,
 		"nothitby":           c.notHitBy,
 		"null":               c.null,
 		"offset":             c.offset,
@@ -402,6 +401,7 @@ var triggerMap = map[string]int{
 	"mugenversion":       1,
 	"numplayer":          1,
 	"offset":             1,
+	"outrostate":         1,
 	"p5name":             1,
 	"p6name":             1,
 	"p7name":             1,
@@ -434,6 +434,7 @@ var triggerMap = map[string]int{
 	"selfcommand":        1,
 	"selfstatenoexist":   1,
 	"sign":               1,
+	"soundvar":           1,
 	"sprpriority":        1,
 	"stagebackedgedist":  1,
 	"stageconst":         1,
@@ -1809,8 +1810,10 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			out.append(OC_const_size_draw_offset_x)
 		case "size.draw.offset.y":
 			out.append(OC_const_size_draw_offset_y)
-		case "size.depth":
-			out.append(OC_const_size_depth)
+		case "size.depth.front":
+			out.append(OC_const_size_depth_front)
+		case "size.depth.back":
+			out.append(OC_const_size_depth_back)
 		case "size.weight":
 			out.append(OC_const_size_weight)
 		case "size.pushfactor":
@@ -2997,6 +3000,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		out.append(OC_roundstate)
 	case "introstate":
 		out.append(OC_ex2_, OC_ex2_introstate)
+	case "outrostate":
+		out.append(OC_ex2_, OC_ex2_outrostate)
 	case "screenheight":
 		out.append(OC_screenheight)
 	case "screenpos":
@@ -3016,6 +3021,83 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			return bvNone(), err
 		}
 		out.append(OC_selfanimexist)
+	case "soundvar":
+		if err := c.checkOpeningBracket(in); err != nil {
+			return bvNone(), err
+		}
+		if bv1, err = c.expBoolOr(&be1, in); err != nil {
+			return bvNone(), err
+		}
+		if c.token != "," {
+			return bvNone(), Error("Missing ','")
+		}
+		c.token = c.tokenizer(in)
+
+		vname := c.token
+		// isFlag := false
+
+		switch vname {
+		case "group":
+			opc = OC_ex2_soundvar_group
+		case "number":
+			opc = OC_ex2_soundvar_number
+		case "freqmul":
+			opc = OC_ex2_soundvar_freqmul
+		case "isplaying":
+			opc = OC_ex2_soundvar_isplaying
+		case "length":
+			opc = OC_ex2_soundvar_length
+		case "loopcount":
+			opc = OC_ex2_soundvar_loopcount
+		case "loopend":
+			opc = OC_ex2_soundvar_loopend
+		case "loopstart":
+			opc = OC_ex2_soundvar_loopstart
+		case "pan":
+			opc = OC_ex2_soundvar_pan
+		case "position":
+			opc = OC_ex2_soundvar_position
+		case "priority":
+			opc = OC_ex2_soundvar_priority
+		case "startposition":
+			opc = OC_ex2_soundvar_startposition
+		case "volumescale":
+			opc = OC_ex2_soundvar_volumescale
+		default:
+			return bvNone(), Error(fmt.Sprint("Invalid argument: %s", vname))
+		}
+
+		c.token = c.tokenizer(in)
+		if err := c.checkClosingBracket(); err != nil {
+			return bvNone(), err
+		}
+
+		// If bv1 is ever 0 Ikemen crashes.
+		// I do not know why this happens.
+		// It happened with clsnVar.
+		idx := bv1.ToI()
+		if idx >= 0 {
+			bv1.SetI(idx + 1)
+		}
+
+		be2.appendValue(bv2)
+		be1.appendValue(bv1)
+
+		if len(be2) > int(math.MaxUint8-1) {
+			be1.appendI32Op(OC_jz, int32(len(be2)+1))
+		} else {
+			be1.append(OC_jz8, OpCode(len(be2)+1))
+		}
+		be1.append(be2...)
+
+		if rd {
+			out.appendI32Op(OC_nordrun, int32(len(be1)))
+		}
+		// Just in case anybody else bangs their head against a wall with redirects:
+		// it is imperative that the be1.append(opcodetype, opcode) comes after the
+		// rd out.appendI32Op(OC_nordrun, int32(len(be1)))
+		be1.append(OC_ex2_, opc)
+		out.append(be1...)
 	case "stateno", "p2stateno":
 		if c.token == "p2stateno" {
 			out.appendI32Op(OC_p2, 1)
@@ -3821,6 +3903,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			opc = OC_ex_fightscreenvar_round_slow_time
 		case "round.start.waittime":
 			opc = OC_ex_fightscreenvar_round_start_waittime
+		case "round.callfight.time":
+			opc = OC_ex_fightscreenvar_round_callfight_time
 		case "time.framespercount":
 			opc = OC_ex_fightscreenvar_time_framespercount
 		default:
@@ -6839,7 +6923,7 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 	// Initialize command list data
 	if sys.chars[pn][0].cmd == nil {
 		sys.chars[pn][0].cmd = make([]CommandList, MaxSimul*2+MaxAttachedChar)
-		b := NewCommandBuffer()
+		b := NewInputBuffer()
 		for i := range sys.chars[pn][0].cmd {
 			sys.chars[pn][0].cmd[i] = *NewCommandList(b)
 		}
