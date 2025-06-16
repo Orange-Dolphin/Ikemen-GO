@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -302,6 +304,210 @@ func systemScriptInit(l *lua.LState) {
 		}
 		return 0
 	})
+	luaRegister(l, "colorPortrait", func(l *lua.LState) int {
+		a, ok := toUserData(l, 1).(*Anim)
+		if !ok {
+			userDataError(l, 1, a)
+		}
+			
+		if sys.usePalette == true {
+			if sys.cfg.Config.PreloadPalette == false && boolArg(l, 3) == false {
+				c := sys.sel.GetChar(int(numArg(l, 2)))
+				pathname := ""
+				x := 0
+				for x < len(strings.SplitAfterN(c.def, "/", -1)) - 1 {
+					pathname = pathname + strings.SplitAfterN(c.def, "/", -1)[x]
+					x = x + 1
+				}
+				var U *os.File
+				x = 0
+				if a.anim.sff.header.Ver0 == 1 {
+					var err error
+					x = 0
+					for x < len(c.palfiles) {
+						replaceCondition := true
+						U, err = os.Open(pathname + c.palfiles[x])
+						if err != nil {
+							fmt.Println("Failed to open " + c.palfiles[x]) 
+							replaceCondition = false
+						} else {
+							for i := 255; i >= 0; i-- {
+								var rgb [3]byte
+								if _, err = io.ReadFull(U, rgb[:]); err != nil {
+									replaceCondition = false
+									break
+								}
+								if i != 0 {
+									a.anim.palettedata.palettes[c.pal[x] - 1][i] = uint32(255)<<24 | uint32(rgb[2])<<16 | uint32(rgb[1])<<8 | uint32(rgb[0])
+								}
+							}
+							if replaceCondition == true {
+								if a.anim.palettedata.PalTable[[2]int16{1, int16(x + 1)}] == -1 {
+									a.anim.palettedata.PalTable[[2]int16{1, int16(x + 1)}] = int(x)
+								}
+							}
+							chk(U.Close())
+						}
+						x = x + 1
+					}
+				} else {
+					s := newSff()
+					filename := a.anim.sff.filename
+					f, err := OpenFile(filename)
+					if err != nil {
+						fmt.Println("Fail")
+						return 0
+					}
+					defer func() { chk(f.Close()) }()
+					var lofs, tofs uint32
+					if err := s.header.Read(f, &lofs, &tofs); err != nil {
+						return 0
+					}
+					read := func(x interface{}) error {
+						return binary.Read(f, binary.LittleEndian, x)
+					}
+					uniquePals := make(map[[2]int16]int)
+					for i := 0; i < int(s.header.NumberOfPalettes); i++ {
+						f.Seek(int64(s.header.FirstPaletteHeaderOffset)+int64(i*16), 0)
+						var gn_ [3]int16
+						if err := read(gn_[:]); err != nil {
+							return 0
+						}
+						if gn_[0] == 1 {
+							var link uint16
+							if err := read(&link); err != nil {
+								return 0
+							}
+							var ofs, siz uint32
+							if err := read(&ofs); err != nil {
+								return 0
+							}
+							if err := read(&siz); err != nil {
+								return 0
+							}
+							var pal []uint32
+							var idx int
+							if old, ok := uniquePals[[...]int16{gn_[0], gn_[1]}]; ok {
+								idx = old
+								pal = a.anim.palettedata.Get(old)
+								sys.errLog.Printf("%v duplicated palette: %v,%v (%v/%v)\n", filename, gn_[0], gn_[1], i+1, s.header.NumberOfPalettes)
+							} else if siz == 0 {
+								idx = int(link)
+								pal = a.anim.palettedata.Get(idx)
+							} else {
+								f.Seek(int64(lofs+ofs), 0)
+								pal = make([]uint32, 256)
+								var rgba [4]byte
+								for i := 0; i < int(siz)/4 && i < len(pal); i++ {
+									if err := read(rgba[:]); err != nil {
+										return 0
+									}
+									if s.header.Ver2 == 0 {
+										if i == 0 {
+											rgba[3] = 0
+										} else {
+											rgba[3] = 255
+										}
+									}
+									pal[i] = uint32(rgba[3])<<24 | uint32(rgba[2])<<16 | uint32(rgba[1])<<8 | uint32(rgba[0])
+								}
+								idx = i
+							}
+							uniquePals[[...]int16{gn_[0], gn_[1]}] = idx
+							a.anim.palettedata.SetSource(i, pal)
+							a.anim.palettedata.PalTable[[...]int16{gn_[0], gn_[1]}] = idx
+							a.anim.palettedata.numcols[[...]int16{gn_[0], gn_[1]}] = int(gn_[2])
+							if i <= MaxPalNo &&
+								a.anim.palettedata.PalTable[[...]int16{1, int16(i + 1)}] == a.anim.palettedata.PalTable[[...]int16{gn_[0], gn_[1]}] &&
+								gn_[0] != 1 && gn_[1] != int16(i+1) {
+								a.anim.palettedata.PalTable[[...]int16{1, int16(i + 1)}] = -1
+							}
+							if i <= MaxPalNo && i+1 == int(s.header.NumberOfPalettes) {
+								for j := i + 1; j < MaxPalNo; j++ {
+									delete(a.anim.palettedata.PalTable, [...]int16{1, int16(j + 1)}) // Remove extra palette
+								}
+							}
+						}
+					}
+				}
+			}
+			
+			//Copy information
+			uniqueSff := newSff()
+			uniqueSff.header = a.anim.sff.header
+			uniqueSff.palList.palettes = a.anim.palettedata.palettes
+			x:= 0
+			uniqueSff.palList.paletteMap = nil
+			for x < len(a.anim.sff.palList.paletteMap) {//Copy each value from the palette map individually, without doing this, different sides/members of the same character will share palettes.
+				uniqueSff.palList.paletteMap = append(uniqueSff.palList.paletteMap, x)
+				x = x + 1
+			}
+			uniqueSff.palList.PalTable = a.anim.palettedata.PalTable
+			uniqueSff.palList.numcols = a.anim.palettedata.numcols
+			uniqueSff.palList.PalTex = a.anim.palettedata.PalTex
+			frameAnims := ""
+			x = 0
+			for x < len(a.anim.frames) {
+				frameAnims = frameAnims + fmt.Sprint(a.anim.frames[x].Group) + "," + fmt.Sprint(a.anim.frames[x].Number) + "," + fmt.Sprint(a.anim.frames[x].Xoffset) + "," + fmt.Sprint(a.anim.frames[x].Yoffset) + "," + fmt.Sprint(a.anim.frames[x].Time) + "\n"
+				x = x + 1
+			}
+			
+			//Create animation and copy animation data
+			newAnim := NewAnim(uniqueSff, frameAnims)
+			newAnim.window = a.window
+			newAnim.x = a.x
+			newAnim.y = a.y
+			newAnim.xscl = a.xscl
+			newAnim.yscl = a.yscl
+			newAnim.palfx = a.palfx
+			
+			//Information to match the current frame in the animation
+			newAnim.anim.looptime = a.anim.looptime
+			newAnim.anim.loopstart = a.anim.loopstart
+			newAnim.anim.current = a.anim.current
+			newAnim.anim.sumtime = a.anim.sumtime
+			newAnim.anim.frames = a.anim.frames
+			newAnim.anim.interpolate_blend_srcalpha = a.anim.interpolate_blend_srcalpha
+			newAnim.anim.interpolate_scale = a.anim.interpolate_scale
+			for _, c := range a.anim.frames {
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}] = newSprite()
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1]
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1]
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0]
+				newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0]
+			}
+			
+			for _, c := range newAnim.anim.frames {
+				if newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx == 0 && len(sys.sel.GetChar(int(numArg(l, 2))).pal) > 0{
+					newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = nil
+				} 
+			}
+			
+			
+			l.Push(newUserData(l, newAnim))
+			return 1
+		} else {
+			l.Push(newUserData(l, a))
+			return 1
+		}
+	})
+	
+	luaRegister(l, "changeColorPalette", func(*lua.LState) int {
+		a, _ := toUserData(l, 1).(*Anim)
+		a.anim.palettedata.paletteMap[0] = int(numArg(l, 2)) - 1
+		l.Push(newUserData(l, a))
+		return 1
+	})
+	
+	
+	luaRegister(l, "usePalette", func(l *lua.LState) int {
+		sys.usePalette = boolArg(l, 1)
+		return 1
+	})
+	
 	luaRegister(l, "animGetPreloadedStageData", func(l *lua.LState) int {
 		if anim := sys.sel.GetStage(int(numArg(l, 1))).anims.get(int16(numArg(l, 2)), int16(numArg(l, 3))); anim != nil {
 			pfx := newPalFX()
