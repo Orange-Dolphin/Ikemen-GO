@@ -496,9 +496,9 @@ func FileExist(filename string) string {
 	for _, r := range filename {
 		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' {
 			pattern += "[" + string(unicode.ToLower(r)) +
-				string(unicode.ToUpper(r)) + "]"
+				string(unicode.ToLower(r)+'A'-'a') + "]"
 		} else if r == '*' || r == '?' || r == '[' {
-			pattern += `\` + string(r)
+			pattern += "\\" + string(r)
 		} else {
 			pattern += string(r)
 		}
@@ -516,7 +516,7 @@ func FileExist(filename string) string {
 // 'dirs' elements can be plain directory paths or logical paths to .def files (which might be inside zips).
 // 'file' is the filename to search (e.g., "kfm.sff").
 func SearchFile(file string, dirs []string) string {
-	file = filepath.ToSlash(file)
+	file = strings.Replace(file, "\\", "/", -1)
 
 	if isZipFull, _, _ := IsZipPath(file); isZipFull {
 		if found := FileExist(file); found != "" {
@@ -569,7 +569,10 @@ func SearchFile(file string, dirs []string) string {
 func LoadFile(file *string, dirs []string, load func(string) error) error {
 	fp := SearchFile(*file, dirs)
 	if err := load(fp); err != nil {
-		return Error(dirs[0] + ":\n" + fp + "\n" + err.Error())
+		if len(dirs) > 0 {
+			return Error(dirs[0] + ":\n" + fp + "\n" + err.Error())
+		}
+		return Error(fp + "\n" + err.Error())
 	}
 	*file = fp
 	return nil

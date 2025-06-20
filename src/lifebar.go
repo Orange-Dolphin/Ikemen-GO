@@ -49,10 +49,13 @@ func (wt *WinType) SetPerfect() {
 
 type FightFx struct {
 	fat        AnimationTable
+	fileName   string
 	fsff       *Sff
 	fsnd       *Snd
 	fx_scale   float32
 	localcoord [2]float32
+	refCount   int
+	isGlobal   bool
 }
 
 func newFightFx() *FightFx {
@@ -63,7 +66,7 @@ func newFightFx() *FightFx {
 	}
 }
 
-func loadFightFx(def string) error {
+func loadFightFx(def string, isGlobal bool) error {
 	str, err := LoadText(def)
 	if err != nil {
 		return err
@@ -88,6 +91,15 @@ func loadFightFx(def string) error {
 				prefix = strings.ToLower(prefix)
 				if prefix == "f" || prefix == "s" {
 					return Error(fmt.Sprintf("%v prefix is reserved for the system and cannot be used", strings.ToUpper(prefix)))
+				}
+				if ffx, ok := sys.ffx[prefix]; ok {
+					// グローバルFXは常に有効。キャラクターFXはカウントを増やす
+					if !isGlobal {
+						if ffx.refCount < 8 {
+							ffx.refCount += 1 + int((sys.numSimul[0]+sys.numSimul[1])/2)
+						}
+					}
+					return nil
 				}
 				is.ReadF32("fx.scale", &ffx.fx_scale)
 				// Read localcoord
@@ -142,6 +154,13 @@ func loadFightFx(def string) error {
 	}
 	if sys.ffx[prefix] == nil {
 		sys.ffxRegexp += "|^(" + prefix + ")"
+	}
+	ffx.fileName = def
+	ffx.isGlobal = isGlobal
+	if isGlobal {
+		ffx.refCount = 99999
+	} else {
+		ffx.refCount = 3 + int(sys.numSimul[0]+sys.numSimul[1])
 	}
 	sys.ffx[prefix] = ffx
 	return nil
@@ -3997,10 +4016,11 @@ func loadLifebar(def string) (*Lifebar, error) {
 	i = 0
 	filesflg := true
 	ffx := newFightFx()
+	ffx.isGlobal = true
 	// Load Common FX first
 	for _, key := range SortedKeys(sys.cfg.Common.Fx) {
 		for _, v := range sys.cfg.Common.Fx[key] {
-			if err := loadFightFx(v); err != nil {
+			if err := loadFightFx(v, true); err != nil {
 				return nil, err
 			}
 		}
@@ -4075,7 +4095,7 @@ func loadLifebar(def string) (*Lifebar, error) {
 				for i := 1; i <= l.fx_limit; i++ {
 					if err := is.LoadFile(fmt.Sprintf("fx%v", i), []string{def, sys.motifDir, "", "data/"},
 						func(filename string) error {
-							if err := loadFightFx(filename); err != nil {
+							if err := loadFightFx(filename, true); err != nil {
 								return err
 							}
 							return nil
