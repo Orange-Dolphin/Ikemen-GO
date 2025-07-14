@@ -575,6 +575,7 @@ type HitDef struct {
 	p1stateno                  int32
 	p2stateno                  int32
 	p2getp1state               bool
+	missonoverride             int32
 	forcestand                 int32
 	forcecrouch                int32
 	ground_fall                bool
@@ -693,6 +694,7 @@ func (hd *HitDef) clear(c *Char, localscl float32) {
 		p1sprpriority:       1,
 		p1stateno:           -1,
 		p2stateno:           -1,
+		missonoverride:      -1,
 		forcestand:          IErr,
 		forcecrouch:         IErr,
 		guard_dist_x:        hd.guard_dist_x, // These default to no change
@@ -2490,6 +2492,7 @@ type Char struct {
 	mctype              MoveContact
 	mctime              int32
 	children            []*Char
+	isclsnproxy         bool
 	targets             []int32
 	hitdefTargets       []int32
 	hitdefTargetsBuffer []int32
@@ -2660,7 +2663,7 @@ func (c *Char) clsnOverlapTrigger(box1, pid, box2 int32) bool {
 	if getter == nil {
 		return false
 	}
-	return c.clsnCheck(getter, box1, box2, false, true)
+	return c.clsnCheck(getter, box1, box2, false, true, false, false)
 }
 
 func (c *Char) addChild(ch *Char) {
@@ -2809,9 +2812,7 @@ func (c *Char) load(def string) error {
 
 		if isZipDef {
 			if isEngineRootRelative {
-				// Example: kfm.zip/kfm.def, and kfm.def has `sound = data/common.snd`
-				// This should form kfm.zip/data/common.snd for SearchFile
-				return filepath.ToSlash(filepath.Join(zipArchiveOfDef, pathInDefFile))
+				return pathInDefFile
 			}
 			baseDirWithinZip := filepath.ToSlash(filepath.Dir(defSubPathInZip))
 			if baseDirWithinZip == "." || baseDirWithinZip == "" {
@@ -2819,7 +2820,7 @@ func (c *Char) load(def string) error {
 			}
 			return filepath.ToSlash(filepath.Join(zipArchiveOfDef, baseDirWithinZip, pathInDefFile))
 		}
-		return filepath.ToSlash(filepath.Join(filepath.Dir(gi.def), pathInDefFile))
+		return pathInDefFile
 	}
 	if err := c.loadFx(def); err != nil {
 		sys.errLog.Printf("Error loading FX for %s: %v", def, err)
@@ -2864,10 +2865,12 @@ func (c *Char) load(def string) error {
 		case "files":
 			if files {
 				files = false
-				cns, sprite = is["cns"], is["sprite"]
-				anim, sound = is["anim"], is["sound"]
+				cns = decodeShiftJIS(is["cns"])
+				sprite = decodeShiftJIS(is["sprite"])
+				anim = decodeShiftJIS(is["anim"])
+				sound = decodeShiftJIS(is["sound"])
 				for i := range gi.pal {
-					gi.pal[i] = is[fmt.Sprintf("pal%v", i+1)]
+					gi.pal[i] = decodeShiftJIS(is[fmt.Sprintf("pal%v", i+1)])
 				}
 				for i := range fnt {
 					fnt[i][0] = is[fmt.Sprintf("font%v", i)]
@@ -2923,10 +2926,12 @@ func (c *Char) load(def string) error {
 			if lanFiles {
 				files = false
 				lanFiles = false
-				cns, sprite = is["cns"], is["sprite"]
-				anim, sound = is["anim"], is["sound"]
+				cns = decodeShiftJIS(is["cns"])
+				sprite = decodeShiftJIS(is["sprite"])
+				anim = decodeShiftJIS(is["anim"])
+				sound = decodeShiftJIS(is["sound"])
 				for i := range gi.pal {
-					gi.pal[i] = is[fmt.Sprintf("pal%v", i+1)]
+					gi.pal[i] = decodeShiftJIS(is[fmt.Sprintf("pal%v", i+1)])
 				}
 				for i := range fnt {
 					fnt[i][0] = is[fmt.Sprintf("font%v", i)]
@@ -3287,7 +3292,8 @@ func (c *Char) load(def string) error {
 						quotes = false
 						for i := range gi.quotes {
 							if is[fmt.Sprintf("victory%v", i)] != "" {
-								gi.quotes[i], _, _ = is.getText(fmt.Sprintf("victory%v", i))
+								victoryQuotes, _, _ := is.getText(fmt.Sprintf("victory%v", i))
+								gi.quotes[i] = decodeShiftJIS(victoryQuotes)
 							}
 						}
 					}
@@ -3297,7 +3303,8 @@ func (c *Char) load(def string) error {
 						lanQuotes = false
 						for i := range gi.quotes {
 							if is[fmt.Sprintf("victory%v", i)] != "" {
-								gi.quotes[i], _, _ = is.getText(fmt.Sprintf("victory%v", i))
+								victoryQuotes, _, _ := is.getText(fmt.Sprintf("victory%v", i))
+								gi.quotes[i] = decodeShiftJIS(victoryQuotes)
 							}
 						}
 					}
@@ -3401,26 +3408,28 @@ func (c *Char) load(def string) error {
 	} else {
 		gi.snd = newSnd()
 	}
-	if c.teamside != -1 {
-		// Get fonts from preloaded data
-		gi.fnt = sys.sel.GetChar(c.selectNo).fnt
-	} else {
-		// Load fonts for AttachedChar
-		for i, f := range fnt {
-			if len(f[0]) > 0 {
-				fnt_path_resolved := resolvePathRelativeToDef(f[0])
-				LoadFile(&fnt_path_resolved, []string{def, sys.motifDir, "", "data/", "font/"}, func(filename string) error {
+	// Load fonts
+	for i_fnt, f_fnt_pair := range fnt {
+		if len(f_fnt_pair[0]) > 0 {
+			resolvedFntPath := resolvePathRelativeToDef(f_fnt_pair[0])
+			i := i_fnt
+			f_pair := f_fnt_pair
+			LoadFile(&resolvedFntPath, []string{def, sys.motifDir, "", "data/", "font/"}, func(filename string) error {
+				// Defer the font loading to the main thread
+				sys.mainThreadTask <- func() {
 					var err error
 					var height int32 = -1
-					if len(f[1]) > 0 {
-						height = Atoi(f[1])
+					if len(f_pair[1]) > 0 {
+						height = Atoi(f_pair[1])
 					}
 					if gi.fnt[i], err = loadFnt(filename, height); err != nil {
 						sys.errLog.Printf("failed to load %v (char font): %v", filename, err)
+						// Assign a new empty font on failure to prevent nil pointer panics
+						gi.fnt[i] = newFnt()
 					}
-					return nil
-				})
-			}
+				}
+				return nil
+			})
 		}
 	}
 	return nil
@@ -3514,58 +3523,23 @@ func (c *Char) loadPalette() {
 			}
 		}
 	}
-	// Check if the current palette exists and is not already being used
-	// Palette conflicts are first checked in the select screen script according to the character slot
-	// That doesn't avoid cases like the same character being picked from different select screen slots, so we check duplicates again here
-	starti := gi.palno - 1
-	if !gi.palExist[starti] {
-		starti %= 6
-	}
-	i := starti
-	for {
-		if gi.palExist[i] {
-			// Check for palette conflicts with other instances of the same character
-			conflict := false
-			for j := 0; j < len(sys.chars); j++ {
-				if j != c.playerNo && len(sys.chars[j]) > 0 &&
-					sys.cgi[j].def == gi.def && sys.cgi[j].palno == i+1 {
-					conflict = true
-					break
-				}
-			}
-			// If no conflict is found, assign this palette to palno
-			if !conflict {
-				gi.palno = i + 1
-				break // Palette assigned successfully
+	palIdx := gi.palno - 1
+	if palIdx < 0 || palIdx >= int32(len(gi.palExist)) || !gi.palExist[palIdx] {
+		found := false
+		for i := 0; i < len(gi.palExist); i++ {
+			if gi.palExist[i] {
+				gi.palno = int32(i + 1)
+				found = true
+				break
 			}
 		}
-		// Try the next palette index
-		i++
-		// Wrap around if the index exceeds the maximum number of palettes
-		if i >= MaxPalNo {
-			i = 0
-		}
-		// If we've looped back to the starting index, handle fallback
-		if i == starti {
-			// If the original desired palette does not exist
-			if !gi.palExist[gi.palno-1] {
-				i := 0
-				// Search for the first available palette
-				for ; i < len(gi.palExist); i++ {
-					if gi.palExist[i] {
-						gi.palno = int32(i + 1)
-						break
-					}
-				}
-				// If no palettes are available, default to the first palette
-				if i >= len(gi.palExist) {
-					gi.palno, gi.palExist[0] = 1, true
-					gi.palSelectable[0] = true
-				}
-			}
-			break // Exit the loop after handling fallback
+		if !found {
+			gi.palno = 1
+			gi.palExist[0] = true
+			gi.palSelectable[0] = true
 		}
 	}
+
 	gi.remappedpal = [2]int32{1, gi.palno}
 }
 func (c *Char) loadFx(def string) error {
@@ -3590,7 +3564,7 @@ func (c *Char) loadFx(def string) error {
 		isEngineRootRelative := strings.HasPrefix(pathInDefFile, "data/") || strings.HasPrefix(pathInDefFile, "font/") || strings.HasPrefix(pathInDefFile, "stages/")
 		if isZipDef {
 			if isEngineRootRelative {
-				return filepath.ToSlash(filepath.Join(zipArchiveOfDef, pathInDefFile))
+				return pathInDefFile
 			}
 			baseDirWithinZip := filepath.ToSlash(filepath.Dir(defSubPathInZip))
 			if baseDirWithinZip == "." || baseDirWithinZip == "" {
@@ -3598,7 +3572,7 @@ func (c *Char) loadFx(def string) error {
 			}
 			return filepath.ToSlash(filepath.Join(zipArchiveOfDef, baseDirWithinZip, pathInDefFile))
 		}
-		return filepath.ToSlash(filepath.Join(filepath.Dir(def), pathInDefFile))
+		return pathInDefFile
 	}
 
 	lines, i := SplitAndTrim(charDefContent, "\n"), 0
@@ -4219,11 +4193,19 @@ func (c *Char) getPlayerID(pn int) int32 {
 	return 0
 }
 
-func (c *Char) getPower() int32 {
-	if sys.cfg.Options.Team.PowerShare && c.teamside != -1 {
-		return sys.chars[c.playerNo&1][0].power
+// Handle power sharing
+// Neutral players (attached characters) have no apparent reasons to share power
+func (c *Char) powerOwner() *Char {
+	if sys.cfg.Options.Team.PowerShare && (c.teamside == 0 || c.teamside == 1) {
+		return sys.chars[c.teamside][0]
+		// TODO: If we ever expand on teamside switching, this could loop over sys.chars and return the first one on the player's side
+		// But currently this method is just slightly more efficient
 	}
-	return sys.chars[c.playerNo][0].power
+	return sys.chars[c.playerNo][0]
+}
+
+func (c *Char) getPower() int32 {
+	return c.powerOwner().power
 }
 
 func (c *Char) hitDefAttr(attr int32) bool {
@@ -5091,8 +5073,8 @@ func (c *Char) playSound(ffx string, lowpriority bool, loopCount int32, g, n, ch
 				str += fmt.Sprintf("P%v:", c.playerNo+1)
 			}
 			sys.errLog.Printf("%v%v,%v\n", str, g, n)
-			return
 		}
+		return
 	}
 	crun := c
 	if c.inheritChannels == 1 && c.parent(false) != nil {
@@ -5423,11 +5405,6 @@ func (c *Char) newHelper() (h *Char) {
 	h.size = c.size
 	h.life, h.lifeMax = c.lifeMax, c.lifeMax
 	h.powerMax = c.powerMax
-	if sys.maxPowerMode {
-		h.power = h.powerMax
-	} else {
-		h.power = 0
-	}
 	h.dizzyPoints, h.dizzyPointsMax = c.dizzyPointsMax, c.dizzyPointsMax
 	h.guardPoints, h.guardPointsMax = c.guardPointsMax, c.guardPointsMax
 	h.redLife = h.lifeMax
@@ -6904,7 +6881,6 @@ func (c *Char) computeDamage(damage float64, kill, absolute bool, atkmul float32
 	return int
 }
 
-// A lot of this logic seems the same as computeDamage. Maybe LifeAdd is supposed to use that function as well
 func (c *Char) lifeAdd(add float64, kill, absolute bool) {
 	if add == 0 {
 		return
@@ -6916,18 +6892,31 @@ func (c *Char) lifeAdd(add float64, kill, absolute bool) {
 	if add > -1 && add < 0 {
 		add = -1
 	}
+
+	add_i64 := int64(math.Round(add))
+	prev_life := c.life
+	new_life_i64 := int64(prev_life) + add_i64
+	new_life_i32 := int32(new_life_i64)
+
+	// MUGEN Overflow/Underflow damage compatibility
+	// For healing (positive add), if it overflows and becomes negative, it's a KO.
+	// For damage (negative add), if it underflows and becomes positive, it's also a KO.
+	if (add_i64 > 0 && new_life_i32 < prev_life) || (add_i64 < 0 && new_life_i32 > prev_life) {
+		new_life_i32 = 0 // Overflow/Underflow results in KO.
+	}
+
 	// Limit value if kill is false
-	if !kill && add <= float64(-c.life) {
-		if c.life > 0 || c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 { // See computeDamage
-			add = float64(1 - c.life)
+	if !kill && new_life_i32 <= 0 {
+		if c.life > 0 || (c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0) {
+			new_life_i32 = 1
+		} else {
+			new_life_i32 = 0
 		}
 	}
-	if add < 0 {
-		c.receivedDmg += Min(c.life, F64toI32(-add))
+	if add_i64 < 0 {
+		c.receivedDmg += Min(c.life, int32(-add_i64))
 	}
-	// Safely convert from float64 back to int32 after all calculations are done
-	int := F64toI32(float64(c.life) + math.Round(add))
-	c.lifeSet(int)
+	c.lifeSet(new_life_i32)
 	// Using LifeAdd currently does not touch the red life value
 	// This could be expanded in the future, as with TargetLifeAdd
 }
@@ -6996,20 +6985,12 @@ func (c *Char) powerAdd(add int32) {
 	}
 	// Safely convert from float64 back to int32 after all calculations are done
 	int := F64toI32(float64(c.getPower()) + math.Round(float64(add)))
-	if sys.cfg.Options.Team.PowerShare && c.teamside != -1 {
-		sys.chars[c.playerNo&1][0].setPower(int)
-	} else {
-		sys.chars[c.playerNo][0].setPower(int)
-	}
+	c.powerOwner().setPower(int)
 }
 
-// This only for the PowerSet state controller
+// This is only for the PowerSet state controller
 func (c *Char) powerSet(pow int32) {
-	if sys.cfg.Options.Team.PowerShare && c.teamside != -1 {
-		sys.chars[c.playerNo&1][0].setPower(pow)
-	} else {
-		sys.chars[c.playerNo][0].setPower(pow)
-	}
+	c.powerOwner().setPower(pow)
 }
 
 func (c *Char) dizzyPointsAdd(add float64, absolute bool) {
@@ -7747,7 +7728,7 @@ func (c *Char) posUpdate() {
 	}
 
 	// Check if character is bound
-	nobind := [...]bool{c.bindTime == 0 || math.IsNaN(float64(c.bindPos[0])),
+	nobind := [3]bool{c.bindTime == 0 || math.IsNaN(float64(c.bindPos[0])),
 		c.bindTime == 0 || math.IsNaN(float64(c.bindPos[1])),
 		c.bindTime == 0 || math.IsNaN(float64(c.bindPos[2]))}
 	for i := range nobind {
@@ -8039,9 +8020,21 @@ func (c *Char) offsetY() float32 {
 	return float32(c.size.draw.offset[1]) + c.offset[1]/c.localscl
 }
 
-func (c *Char) projClsnCheck(p *Projectile, cbox, pbox int32) bool {
+func (c *Char) projClsnCheck(p *Projectile, cbox, pbox int32, clsnproxycheck bool) bool {
 	if p.ani == nil || c.curFrame == nil || c.scf(SCF_standby) || c.scf(SCF_disabled) {
 		return false
+	}
+	// Clsnproxies do not hit nor get hit themselves, they act as an extension of their parent's clsn boxes.
+	if c.isclsnproxy && !clsnproxycheck {
+		return false
+	}
+	// Recursively check clsnproxy children, god I hope this works and doesn't ruin performance. A child being the parent of its parent isn't something that can happen, right...?
+	if cbox != 3 || !clsnproxycheck {
+		for _, chi := range c.children {
+			if chi != nil && chi.isclsnproxy && chi.projClsnCheck(p, cbox, pbox, true) {
+				return true
+			}
+		}
 	}
 
 	// Get projectile animation frame
@@ -8117,10 +8110,27 @@ func (c *Char) projClsnCheck(p *Projectile, cbox, pbox int32) bool {
 		charangle)
 }
 
-func (c *Char) clsnCheck(getter *Char, charbox, getterbox int32, reqcheck, trigger bool) bool {
+func (c *Char) clsnCheck(getter *Char, charbox, getterbox int32, reqcheck, trigger, clsnproxycheck, getterclsnproxycheck bool) bool {
 	// Safety checks
 	if c == nil || getter == nil || c.anim == nil || getter.anim == nil {
 		return false
+	}
+	// Clsnproxies do not hit nor get hit themselves, they act as an extension of their parent's clsn boxes.
+	if (c.isclsnproxy && !clsnproxycheck) || (getter.isclsnproxy && !getterclsnproxycheck) {
+		return false
+	}
+	// Recursively check clsnproxy children, god I hope this works and doesn't ruin performance. A child being the parent of its parent isn't something that can happen, right...?
+	if (getterbox != 3 || !getterclsnproxycheck) && (charbox != 3 || !clsnproxycheck) {
+		for _, chi := range c.children {
+			if chi != nil && chi.isclsnproxy && chi.clsnCheck(getter, charbox, getterbox, reqcheck, trigger, true, getterclsnproxycheck) {
+				return true
+			}
+		}
+		for _, chi := range getter.children {
+			if chi != nil && chi.isclsnproxy && c.clsnCheck(chi, charbox, getterbox, reqcheck, trigger, clsnproxycheck, true) {
+				return true
+			}
+		}
 	}
 
 	// What this does is normally check the Clsn in the currently displayed frame
@@ -8402,7 +8412,7 @@ func (c *Char) hittableByChar(getter *Char, ghd *HitDef, gst StateType, proj boo
 			return (getter.atktmp >= 0 || !c.hasTarget(getter.id)) &&
 				!getter.hasTargetOfHitdef(c.id) &&
 				getter.attrCheck(c, hd, c.ss.stateType) &&
-				c.clsnCheck(getter, 1, c.hitdef.p2clsncheck, true, false) &&
+				c.clsnCheck(getter, 1, c.hitdef.p2clsncheck, true, false, false, false) &&
 				sys.zAxisOverlap(c.pos[2], c.hitdef.attack_depth[0], c.hitdef.attack_depth[1], c.localscl,
 					getter.pos[2], getter.sizeDepth[0], getter.sizeDepth[1], getter.localscl)
 		}
@@ -8586,9 +8596,21 @@ func (c *Char) hitResultCheck(getter *Char, proj *Projectile) (hitResult int32) 
 					continue
 				}
 			}
+			if ho.forceair && !ho.keepState {
+				if hitResult > 0 && hd.air_type == HT_None || hitResult < 0 && hd.ground_type == HT_None && hd.air_type != HT_None {
+					hitResult *= -1
+				}
+				if Abs(hitResult) == 1 {
+					getter.ss.changeStateType(ST_A)
+				}
+				if ho.stateno < 0 {
+					getter.hoIdx = i
+					break
+				}
+			}
 			// Miss if using p2stateno and HitOverride together
-			if !isProjectile && Abs(hitResult) == 1 &&
-				(hd.p2stateno >= 0 || hd.p1stateno >= 0) {
+			if hd.missonoverride == 1 || (hd.missonoverride == -1 && !isProjectile && Abs(hitResult) == 1 &&
+				(hd.p2stateno >= 0 || hd.p1stateno >= 0)) {
 				return 0
 			}
 			if ho.stateno >= 0 || ho.keepState {
@@ -8608,6 +8630,9 @@ func (c *Char) hitResultCheck(getter *Char, proj *Projectile) (hitResult int32) 
 					pn = hd.playerNo
 				}
 				if getter.stateChange1(hd.p2stateno, pn) {
+					// In Mugen, using p2stateno forces movetype to H
+					// https://github.com/ikemen-engine/Ikemen-GO/issues/2466
+					getter.ss.changeMoveType(MT_H)
 					getter.setCtrl(false)
 					p2s = true
 					getter.hoIdx = -1
@@ -8744,7 +8769,6 @@ func (c *Char) hitResultCheck(getter *Char, proj *Projectile) (hitResult int32) 
 				ghv.fall_envshake_phase = hd.fall_envshake_phase
 				ghv.fall_envshake_mul = hd.fall_envshake_mul
 				ghv.fall_envshake_dir = hd.fall_envshake_dir
-
 				if getter.ss.stateType == ST_A {
 					ghv.hittime = hd.air_hittime
 					// Note: ctrl time is not affected on hit in Mugen
@@ -9444,12 +9468,16 @@ func (c *Char) actionPrepare() {
 	}
 	// Decrease unhittable timer
 	// This used to be in tick(), but Mugen Clsn display suggests it happens sooner than that
-	// This used to be CharGlobalInfo, but that made root and helpers share the same timer
+	// This also used to be CharGlobalInfo, but that made root and helpers share the same timer
 	// In Mugen this timer won't decrease unless the char has a Clsn box (of any type)
 	if c.unhittableTime > 0 {
 		c.unhittableTime--
 	}
 	c.dropTargets()
+	// Enable autoguard. This placement gives it similar properties to other AssertSpecial flags
+	if sys.cfg.Options.AutoGuard {
+		c.setASF(ASF_autoguard)
+	}
 }
 
 func (c *Char) actionRun() {
@@ -9491,9 +9519,6 @@ func (c *Char) actionRun() {
 	}
 	// Guarding instructions
 	c.unsetSCF(SCF_guard)
-	if sys.cfg.Options.AutoGuard {
-		c.setASF(ASF_autoguard)
-	}
 	if ((c.scf(SCF_ctrl) || c.ss.no == 52) &&
 		c.ss.moveType == MT_I || c.inGuardState()) && c.cmd != nil &&
 		(c.cmd[0].Buffer.B > 0 || c.asf(ASF_autoguard)) &&
@@ -9953,16 +9978,19 @@ func (c *Char) tick() {
 				c.selfState(5050, -1, -1, -1, "")
 				c.gethitBindClear()
 			} else if !bt.pause() {
-				c.bindTime -= 1
+				// c.bindTime -= 1
+				c.setBindTime(c.bindTime - 1)
 			}
 		} else {
 			if !c.pause() {
-				c.bindTime -= 1
+				// c.bindTime -= 1
+				c.setBindTime(c.bindTime - 1)
+				// The fix below was necessary before because bindTime should not be decremented directly but rather via setBindTime
 				// Fixes BindToRoot/BindToParent of 1 immediately after PosSets (MUGEN 1.0/1.1 behavior)
 				// This must not run for target binds so that they end the same time as MUGEN's do.
-				if c.bindToId > 0 {
-					c.setBindTime(c.bindTime)
-				}
+				//if c.bindToId > 0 {
+				//	c.setBindTime(c.bindTime)
+				//}
 			}
 		}
 	}
@@ -10012,9 +10040,6 @@ func (c *Char) tick() {
 		}
 		c.hitPauseTime = 0
 		//c.targetDrop(-1, false) // GitHub #1148
-		if c.hoIdx >= 0 && c.ho[c.hoIdx].forceair {
-			c.ss.changeStateType(ST_A)
-		}
 		pn := c.playerNo
 		if c.ghv.p2getp1state && !c.ghv.guarded {
 			pn = c.ghv.playerNo
@@ -10081,7 +10106,9 @@ func (c *Char) tick() {
 	// This doesn't actually require getting hit
 	// https://github.com/ikemen-engine/Ikemen-GO/issues/2262
 	if c.hoIdx >= 0 && c.hoIdx < len(c.ho) && !c.hoKeepState {
-		c.stateChange1(c.ho[c.hoIdx].stateno, c.ho[c.hoIdx].playerNo)
+		if c.ho[c.hoIdx].stateno >= 0 {
+			c.stateChange1(c.ho[c.hoIdx].stateno, c.ho[c.hoIdx].playerNo)
+		}
 	}
 	if !c.pause() {
 		if c.hitPauseTime > 0 {
@@ -10586,36 +10613,40 @@ func (cl *CharList) commandUpdate() {
 				if (c.helperIndex == 0 || c.helperIndex > 0 && &c.cmd[0] != &root.cmd[0]) &&
 					c.cmd[0].InputUpdate(c.controller, int32(c.facing), sys.aiLevel[i], c.inputFlag, false) {
 					// Clear input buffers and skip the rest of the loop
-					// This used to apply only to the root, but that caused some issues with helper-based input buffers
+					// This used to apply only to the root, but that caused some issues with helper-based custom input systems
 					if c.inputWait() || c.asf(ASF_noinput) {
 						for i := range c.cmd {
 							c.cmd[i].BufReset()
 						}
 						continue
 					}
-					// Check for buffering during hitpause, Superpause and Pause
-					buffer := false
+					hpbuf := false
+					pausebuf := false
 					winbuf := false
-					if c.hitPause() && c.gi().constants["input.pauseonhitpause"] != 0 {
-						buffer = true
-						// Winmugen chars buffer one frame longer on hitpause
-						// This is true in Winmugen itself but not Mugen 1.0+
-						if c.gi().mugenver[0] != 1 {
+					// Buffer during hitpause
+					if c.hitPause() && c.gi().constants["input.pauseonhitpause"] != 0 { // TODO: Deprecated constant
+						hpbuf = true
+						// In Winmugen, commands were buffered for one extra frame after hitpause (but not after Pause/SuperPause)
+						// This was fixed in Mugen 1.0
+						if c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 && c.stWgi().mugenver[0] != 1 {
 							winbuf = true
 						}
 					}
+					// Buffer during Pause and SuperPause
 					if sys.supertime > 0 {
 						if !act && sys.supertime <= sys.superendcmdbuftime {
-							buffer = true
+							pausebuf = true
 						}
 					} else if sys.pausetime > 0 {
 						if !act && sys.pausetime <= sys.pauseendcmdbuftime {
-							buffer = true
+							pausebuf = true
 						}
 					}
 					// Update commands
 					for i := range c.cmd {
-						c.cmd[i].Step(int32(c.facing), c.controller < 0, buffer, Btoi(buffer)+Btoi(winbuf))
+						extratime := Btoi(hpbuf || pausebuf) + Btoi(winbuf)
+						helperbug := c.helperIndex != 0 && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0
+						c.cmd[i].Step(int32(c.facing), c.controller < 0, helperbug, hpbuf, pausebuf, extratime)
 					}
 					// Enable AI cheated command
 					c.cpucmd = cheat
@@ -10849,7 +10880,7 @@ func (cl *CharList) hitDetectionPlayer(getter *Char) {
 				}
 
 				// If collision OK then get the hit type and act accordingly
-				if zok && c.clsnCheck(getter, 1, c.hitdef.p2clsncheck, true, false) {
+				if zok && c.clsnCheck(getter, 1, c.hitdef.p2clsncheck, true, false, false, false) {
 					if hitResult := c.hitResultCheck(getter, nil); hitResult != 0 {
 						// Check if MoveContact should be updated
 						// Hit type None should also set MoveHit here
@@ -11074,7 +11105,7 @@ func (cl *CharList) hitDetectionProjectile(getter *Char) {
 			if getter.atktmp != 0 && (getter.hitdef.affectteam == 0 ||
 				(p.hitdef.teamside-1 != getter.teamside) == (getter.hitdef.affectteam > 0)) &&
 				getter.hitdef.hitflag&int32(HF_P) != 0 &&
-				getter.projClsnCheck(p, 1, 2) &&
+				getter.projClsnCheck(p, 1, 2, false) &&
 				sys.zAxisOverlap(getter.pos[2], getter.hitdef.attack_depth[0], getter.hitdef.attack_depth[1], getter.localscl,
 					p.pos[2], p.hitdef.attack_depth[0], p.hitdef.attack_depth[1], p.localscl) {
 				if getter.hitdef.p1stateno >= 0 && getter.stateChange1(getter.hitdef.p1stateno, getter.hitdef.playerNo) {
@@ -11099,7 +11130,7 @@ func (cl *CharList) hitDetectionProjectile(getter *Char) {
 					getter.hittmp = int8(Btoi(getter.ghv.fallflag)) + 1
 				}
 
-				if getter.projClsnCheck(p, p.hitdef.p2clsncheck, 1) &&
+				if getter.projClsnCheck(p, p.hitdef.p2clsncheck, 1, false) &&
 					sys.zAxisOverlap(p.pos[2], p.hitdef.attack_depth[0], p.hitdef.attack_depth[1], p.localscl,
 						getter.pos[2], getter.sizeDepth[0], getter.sizeDepth[1], getter.localscl) {
 
@@ -11192,7 +11223,7 @@ func (cl *CharList) pushDetection(getter *Char) {
 			}
 
 			// Push characters away from each other
-			if c.asf(ASF_sizepushonly) || getter.clsnCheck(c, 2, 2, false, false) {
+			if c.asf(ASF_sizepushonly) || getter.clsnCheck(c, 2, 2, false, false, false, false) {
 
 				getter.pushed, c.pushed = true, true
 

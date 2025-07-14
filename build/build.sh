@@ -20,7 +20,7 @@ function main() {
 	mkdir -p bin
 
 	# Check OS
-	checkOS
+	checkOS $targetOS
 	# If a build target has not been specified use the current OS.
 	if [[ "$1" == "" ]]; then
 		targetOS=$currentOS
@@ -126,7 +126,7 @@ function checkOS() {
 		linux*)
 			currentOS="Linux"
 		;;
-		msys)
+		msys|cygwin)
 			if [[ "$osArch" == "x86_64" ]]; then
 				currentOS="Win64"
 			else

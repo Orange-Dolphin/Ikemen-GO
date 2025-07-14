@@ -35,7 +35,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
 	// Calculate window size & offset it
 	var mode = monitor.GetVideoMode()
 	var w2, h2 = w, h
-	if !fullscreen && (sys.cfg.Video.WindowWidth > 0 || sys.cfg.Video.WindowHeight > 0) {
+	if sys.cfg.Video.WindowWidth > 0 || sys.cfg.Video.WindowHeight > 0 {
 		w2, h2 = sys.cfg.Video.WindowWidth, sys.cfg.Video.WindowHeight
 	}
 	var x, y = (mode.Width - w2) / 2, (mode.Height - h2) / 2
@@ -56,9 +56,9 @@ func (s *System) newWindow(w, h int) (*Window, error) {
 	// Create main window.
 	// NOTE: Borderless fullscreen is in reality just a window without borders.
 	if fullscreen && !s.cfg.Video.Borderless {
-		window, err = glfw.CreateWindow(w, h, s.cfg.Config.WindowTitle, monitor, nil)
+		window, err = glfw.CreateWindow(w2, h2, s.cfg.Config.WindowTitle, monitor, nil)
 	} else {
-		window, err = glfw.CreateWindow(w, h, s.cfg.Config.WindowTitle, nil, nil)
+		window, err = glfw.CreateWindow(w2, h2, s.cfg.Config.WindowTitle, nil, nil)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create window: %w", err)
@@ -83,6 +83,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
 	window.MakeContextCurrent()
 	window.SetKeyCallback(keyCallback)
 	window.SetCharModsCallback(charCallback)
+	window.SetRefreshCallback(refreshCallback)
 
 	// V-Sync
 	if s.cfg.Video.VSync >= 0 {
@@ -125,7 +126,7 @@ func (w *Window) GetScaledViewportSize() (int32, int32, int32, int32) {
 	var ratio float32
 	var x, y, resizedWidth, resizedHeight int32 = 0, 0, int32(winWidth), int32(winHeight)
 
-	if sys.cfg.Video.Fullscreen || int32(winWidth) == sys.scrrect[2] && int32(winHeight) == sys.scrrect[3] {
+	if int32(winWidth) == sys.scrrect[2] && int32(winHeight) == sys.scrrect[3] {
 		return 0, 0, int32(winWidth), int32(winHeight)
 	}
 
@@ -189,6 +190,11 @@ func (w *Window) shouldClose() bool {
 
 func (w *Window) Close() {
 	glfw.Terminate()
+}
+
+func refreshCallback(w *glfw.Window) {
+	gfx.EndFrame()
+	w.SwapBuffers()
 }
 
 func keyCallback(_ *glfw.Window, key Key, _ int, action glfw.Action, mk ModifierKey) {

@@ -573,8 +573,8 @@ func (s *System) tickSound() {
 		}
 	}
 
-	// Always pause if noMusic flag set or pause master volume is 0.
-	s.bgm.SetPaused(s.nomusic || (s.paused && s.cfg.Sound.PauseMasterVolume == 0))
+	// Always pause if noMusic flag set, pause master volume is 0, or freqmul is 0.
+	s.bgm.SetPaused(s.nomusic || (s.paused && s.cfg.Sound.PauseMasterVolume == 0) || (s.bgm.freqmul == 0))
 
 	// Set BGM volume if paused
 	if s.paused && s.bgm.volRestore == 0 {
@@ -759,13 +759,17 @@ func (s *System) roundNoDamage() bool {
 	return sys.intro < 0 && sys.intro <= -sys.lifebar.ro.over_hittime && sys.intro >= -sys.lifebar.ro.over_waittime
 }
 
+// In Mugen, RoundState 2 begins as soon as the "Fight" screen appears, before players have control
+// That causes more harm than good and is not clearly stated in the documentation, so Ikemen changes it
 func (s *System) roundState() int32 {
 	switch {
 	case sys.intro > sys.lifebar.ro.ctrl_time+1 || sys.postMatchFlg:
 		return 0
-	case sys.lifebar.ro.current == 0:
+	//case sys.lifebar.ro.current == 0:
+	case sys.intro > 0:
 		return 1
-	case sys.intro >= 0 || sys.finishType == FT_NotYet:
+	//case sys.intro >= 0 || sys.finishType == FT_NotYet:
+	case sys.intro == 0 || sys.finishType == FT_NotYet:
 		return 2
 	case sys.intro < -sys.lifebar.ro.over_waittime:
 		return 4
@@ -813,7 +817,7 @@ func (s *System) outroState() int32 {
 	case s.roundWinStates():
 		// Player win states
 		return 4
-	case sys.intro < -sys.lifebar.ro.over_waittime || sys.lifebar.ro.over_waittime == 1:
+	case sys.intro <= -sys.lifebar.ro.over_waittime && sys.wintime >= 0:
 		// Players lose control, but the round has not yet entered win states
 		return 3
 	case s.intro < -s.lifebar.ro.over_hittime || sys.lifebar.ro.over_hittime == 1:
@@ -1077,8 +1081,8 @@ func (s *System) restoreAllVolume() {
 				if c.soundChannels.channels[i].sfx != nil && c.soundChannels.channels[i].ctrl != nil {
 					c.soundChannels.channels[i].SetVolume(c.soundChannels.volResume[i])
 
-					// Unpause
-					if c.soundChannels.channels[i].ctrl.Paused {
+					// Unpause only those whose freqmul > 0
+					if c.soundChannels.channels[i].ctrl.Paused && c.soundChannels.channels[i].sfx.freqmul > 0 {
 						c.soundChannels.channels[i].SetPaused(false)
 					}
 				}
@@ -2197,11 +2201,17 @@ func (s *System) fight() (reload bool) {
 	}
 	s.wincnt.init()
 
-	// Initialize super meter values, and max power for teams sharing meter
+	// Prepare next round for all players
+	for _, p := range s.chars {
+		if len(p) > 0 {
+			p[0].prepareNextRound()
+		}
+	}
+
+	// Initialize super meter values and max power for teams sharing meter
 	var level [len(s.chars)]int32
 	for i, p := range s.chars {
 		if len(p) > 0 && p[0].teamside != -1 {
-			p[0].prepareNextRound()
 			level[i] = s.wincnt.getLevel(i)
 			if s.cfg.Options.Team.PowerShare {
 				pmax := Max(s.cgi[i&1].data.power, s.cgi[i].data.power)
@@ -2213,6 +2223,7 @@ func (s *System) fight() (reload bool) {
 			}
 		}
 	}
+
 	minlv, maxlv := level[0], level[0]
 	for i, lv := range level[1:] {
 		if len(s.chars[i+1]) > 0 {
@@ -2292,7 +2303,7 @@ func (s *System) fight() (reload bool) {
 			p[0].lifeMax = Max(1, int32(math.Floor(foo*float64(lm))))
 
 			if p[0].roundsExisted() > 0 {
-				// If character already existed for a round, presumably because of turns mode, just update life
+				// If character already existed for a round, presumably because of Turns mode, just update life
 				p[0].life = Min(p[0].lifeMax, int32(math.Ceil(foo*float64(p[0].life))))
 			} else if s.round == 1 || s.tmode[i&1] == TM_Turns {
 				// If round 1 or a new character in Turns mode, initialize values
@@ -2733,7 +2744,6 @@ type SelectChar struct {
 	cns_scale      [2]float32
 	anims          PreloadedAnims
 	sff            *Sff
-	fnt            [10]*Fnt
 }
 
 func newSelectChar() *SelectChar {
@@ -2905,11 +2915,11 @@ func (s *Select) addChar(defLine string) {
 	} else {
 		charDefPathGuess := defPathFromSelect
 		if !strings.HasSuffix(strings.ToLower(charDefPathGuess), ".def") {
-			baseName := filepath.Base(charDefPathGuess)
-			if strings.Contains(charDefPathGuess, "/") {
+			if !strings.Contains(charDefPathGuess, "/") {
+				baseName := filepath.Base(charDefPathGuess)
 				charDefPathGuess = filepath.ToSlash(filepath.Join(charDefPathGuess, baseName+".def"))
 			} else {
-				charDefPathGuess = filepath.ToSlash(filepath.Join("chars", charDefPathGuess, baseName+".def"))
+				charDefPathGuess += ".def"
 			}
 		}
 
@@ -2954,7 +2964,7 @@ func (s *Select) addChar(defLine string) {
 
 		if isZipDef {
 			if isEngineRootRelative {
-				return filepath.ToSlash(filepath.Join(zipArchiveOfDef, pathInDefFile))
+				return pathInDefFile
 			}
 			baseDirWithinZip := filepath.ToSlash(filepath.Dir(defSubPathInZip))
 			if baseDirWithinZip == "." || baseDirWithinZip == "" { // .def is at zip root
@@ -2963,7 +2973,7 @@ func (s *Select) addChar(defLine string) {
 			return filepath.ToSlash(filepath.Join(zipArchiveOfDef, baseDirWithinZip, pathInDefFile))
 		}
 
-		return filepath.ToSlash(filepath.Join(filepath.Dir(sc.def), pathInDefFile))
+		return pathInDefFile
 	}
 
 	var cns_orig, sprite_orig, anim_orig, movelist_orig string
@@ -3012,17 +3022,17 @@ func (s *Select) addChar(defLine string) {
 		case "files":
 			if files {
 				files = false
-				cns_orig = isec["cns"]
-				sprite_orig = isec["sprite"]
-				anim_orig = isec["anim"]
-				sc.sound = isec["sound"]
+				cns_orig = decodeShiftJIS(isec["cns"])
+				sprite_orig = decodeShiftJIS(isec["sprite"])
+				anim_orig = decodeShiftJIS(isec["anim"])
+				sc.sound = decodeShiftJIS(isec["sound"])
 				for i := 1; i <= MaxPalNo; i++ {
 					if isec[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
 						sc.palfiles = append(sc.palfiles, isec[fmt.Sprintf("pal%v", i)])
 					}
 				}
-				movelist_orig = isec["movelist"]
+				movelist_orig = decodeShiftJIS(isec["movelist"])
 				for i_fnt := range fnt_orig {
 					fnt_orig[i_fnt][0] = isec[fmt.Sprintf("font%v", i_fnt)]
 					fnt_orig[i_fnt][1] = isec[fmt.Sprintf("fnt_height%v", i_fnt)]
@@ -3032,17 +3042,17 @@ func (s *Select) addChar(defLine string) {
 			if lanFiles {
 				files = false
 				lanFiles = false
-				cns_orig = isec["cns"]
-				sprite_orig = isec["sprite"]
-				anim_orig = isec["anim"]
-				sc.sound = isec["sound"]
+				cns_orig = decodeShiftJIS(isec["cns"])
+				sprite_orig = decodeShiftJIS(isec["sprite"])
+				anim_orig = decodeShiftJIS(isec["anim"])
+				sc.sound = decodeShiftJIS(isec["sound"])
 				for i := 1; i <= MaxPalNo; i++ {
 					if isec[fmt.Sprintf("pal%v", i)] != "" {
 						sc.pal = append(sc.pal, int32(i))
 						sc.palfiles = append(sc.palfiles, isec[fmt.Sprintf("pal%v", i)])
 					}
 				}
-				movelist_orig = isec["movelist"]
+				movelist_orig = decodeShiftJIS(isec["movelist"])
 				for i := range fnt_orig {
 					fnt_orig[i][0] = isec[fmt.Sprintf("font%v", i)]
 					fnt_orig[i][1] = isec[fmt.Sprintf("fnt_height%v", i)]
@@ -3177,23 +3187,6 @@ func (s *Select) addChar(defLine string) {
 			return nil
 		})
 	}
-	// preload fonts
-	for i_fnt, f_fnt_pair := range fnt_orig {
-		if len(f_fnt_pair[0]) > 0 {
-			resolvedFntPath := resolvePathRelativeToDef(f_fnt_pair[0])
-			LoadFile(&resolvedFntPath, []string{sc.def, "font/", sys.motifDir, "", "data/"}, func(filename string) error {
-				var err_fnt error
-				var height int32 = -1
-				if len(f_fnt_pair[1]) > 0 {
-					height = Atoi(f_fnt_pair[1])
-				}
-				if sc.fnt[i_fnt], err_fnt = loadFnt(filename, height); err_fnt != nil {
-					sys.errLog.Printf("failed to load %v (char font %v): %v", filename, i_fnt, err_fnt)
-				}
-				return nil
-			})
-		}
-	}
 }
 
 func (s *Select) AddStage(def string) error {
@@ -3249,6 +3242,9 @@ func (s *Select) AddStage(def string) error {
 			}
 		}
 	} else {
+		if !strings.HasSuffix(strings.ToLower(def), ".def") {
+			def += ".def"
+		}
 		if err := LoadFile(&def, []string{"stages/", "data/", ""}, func(file string) error {
 			finalDefPath = file
 			return nil

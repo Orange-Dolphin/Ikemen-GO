@@ -154,8 +154,10 @@ func processCommandLine() {
 -r <path>               Loads motif <path>. eg. -r motifdir or -r motifdir/system.def
 -lifebar <path>         Loads lifebar <path>. eg. -lifebar data/fight.def
 -storyboard <path>      Loads storyboard <path>. eg. -storyboard chars/kfm/intro.def
--width <num>            Overrides game window width
--height <num>           Overrides game window height
+-windowed               Starts in windowed mode (disables fullscreen)
+-width <num>            Sets game width
+-height <num>           Sets game height
+-setvolume <num>        Sets master volume to <num> (0-100)
 
 Quick VS Options:
 -p<n> <playername>      Loads player n, eg. -p3 kfm
@@ -173,7 +175,6 @@ Debug Options:
 -nojoy                  Disables joysticks
 -nomusic                Disables music
 -nosound                Disables all sound effects and music
--windowed               Windowed mode (disables fullscreen)
 -togglelifebars         Disables display of the Life and Power bars
 -maxpowermode           Enables auto-refill of Power bars
 -ailevel <level>        Changes game difficulty setting to <level> (1-8)

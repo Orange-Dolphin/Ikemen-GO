@@ -620,6 +620,7 @@ const (
 	OC_ex_inputtime_U
 	OC_ex_inputtime_L
 	OC_ex_inputtime_R
+	OC_ex_inputtime_N
 	OC_ex_inputtime_a
 	OC_ex_inputtime_b
 	OC_ex_inputtime_c
@@ -721,11 +722,11 @@ const (
 	OC_ex_fightscreenvar_round_start_waittime
 	OC_ex_fightscreenvar_round_callfight_time
 	OC_ex_fightscreenvar_time_framespercount
-	OC_ex_groundlevel
-	OC_ex_layerno
 )
 const (
 	OC_ex2_index OpCode = iota
+	OC_ex2_groundlevel
+	OC_ex2_layerno
 	OC_ex2_runorder
 	OC_ex2_palfxvar_time
 	OC_ex2_palfxvar_addr
@@ -777,6 +778,7 @@ const (
 	OC_ex2_clsnvar_top
 	OC_ex2_clsnvar_right
 	OC_ex2_clsnvar_bottom
+	OC_ex2_isclsnproxy
 	OC_ex2_debug_accel
 	OC_ex2_debug_clsndisplay
 	OC_ex2_debug_debugdisplay
@@ -866,6 +868,12 @@ const (
 	OC_ex2_projvar_velmul_x
 	OC_ex2_projvar_velmul_y
 	OC_ex2_projvar_velmul_z
+	OC_ex2_hitdefvar_guard_dist_depth_bottom
+	OC_ex2_hitdefvar_guard_dist_depth_top
+	OC_ex2_hitdefvar_guard_dist_height_bottom
+	OC_ex2_hitdefvar_guard_dist_height_top
+	OC_ex2_hitdefvar_guard_dist_width_back
+	OC_ex2_hitdefvar_guard_dist_width_front
 	OC_ex2_hitdefvar_guard_pausetime
 	OC_ex2_hitdefvar_guard_shaketime
 	OC_ex2_hitdefvar_guard_sparkno
@@ -2895,8 +2903,6 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 		*i += 4
 	case OC_ex_groundangle:
 		sys.bcStack.PushF(c.groundAngle)
-	case OC_ex_groundlevel:
-		sys.bcStack.PushF(c.groundLevel * (c.localscl / oc.localscl))
 	case OC_ex_guardbreak:
 		sys.bcStack.PushB(c.scf(SCF_guardbreak))
 	case OC_ex_guardcount:
@@ -2925,7 +2931,7 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 	case OC_ex_indialogue:
 		sys.bcStack.PushB(sys.dialogueFlg)
 	// InputTime
-	case OC_ex_inputtime_B, OC_ex_inputtime_D, OC_ex_inputtime_F, OC_ex_inputtime_U, OC_ex_inputtime_L, OC_ex_inputtime_R,
+	case OC_ex_inputtime_B, OC_ex_inputtime_D, OC_ex_inputtime_F, OC_ex_inputtime_U, OC_ex_inputtime_L, OC_ex_inputtime_R, OC_ex_inputtime_N,
 		OC_ex_inputtime_a, OC_ex_inputtime_b, OC_ex_inputtime_c, OC_ex_inputtime_x, OC_ex_inputtime_y, OC_ex_inputtime_z,
 		OC_ex_inputtime_s, OC_ex_inputtime_d, OC_ex_inputtime_w, OC_ex_inputtime_m:
 		// Check for valid inputs
@@ -2943,6 +2949,8 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 				sys.bcStack.PushI(c.cmd[0].Buffer.Lb)
 			case OC_ex_inputtime_R:
 				sys.bcStack.PushI(c.cmd[0].Buffer.Rb)
+			case OC_ex_inputtime_N:
+				sys.bcStack.PushI(c.cmd[0].Buffer.Nb)
 			case OC_ex_inputtime_a:
 				sys.bcStack.PushI(c.cmd[0].Buffer.ab)
 			case OC_ex_inputtime_b:
@@ -2977,8 +2985,6 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 		sys.bcStack.PushB(c.isHost())
 	case OC_ex_jugglepoints:
 		*sys.bcStack.Top() = c.jugglePoints(*sys.bcStack.Top())
-	case OC_ex_layerno:
-		sys.bcStack.PushI(c.layerNo)
 	case OC_ex_localcoord_x:
 		sys.bcStack.PushF(sys.cgi[c.playerNo].localcoord[0])
 	case OC_ex_localcoord_y:
@@ -3165,6 +3171,12 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 	switch opc {
 	case OC_ex2_index:
 		sys.bcStack.PushI(c.index)
+	case OC_ex2_isclsnproxy:
+		sys.bcStack.PushB(c.isclsnproxy)
+	case OC_ex2_groundlevel:
+		sys.bcStack.PushF(c.groundLevel * (c.localscl / oc.localscl))
+	case OC_ex2_layerno:
+		sys.bcStack.PushI(c.layerNo)
 	case OC_ex2_runorder:
 		sys.bcStack.PushI(c.runorder)
 	case OC_ex2_palfxvar_time:
@@ -3641,54 +3653,66 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 	case OC_ex2_systemvar_superpausetime:
 		sys.bcStack.PushI(sys.supertime)
 	// HitDefVar
+	case OC_ex2_hitdefvar_guard_dist_width_back:
+		sys.bcStack.PushF(c.hitdef.guard_dist_x[1] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_guard_dist_width_front:
+		sys.bcStack.PushF(c.hitdef.guard_dist_x[0] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_guard_dist_height_bottom:
+		sys.bcStack.PushF(c.hitdef.guard_dist_y[1] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_guard_dist_height_top:
+		sys.bcStack.PushF(c.hitdef.guard_dist_y[0] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_guard_dist_depth_bottom:
+		sys.bcStack.PushF(c.hitdef.guard_dist_z[1] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_guard_dist_depth_top:
+		sys.bcStack.PushF(c.hitdef.guard_dist_z[0] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_guard_pausetime:
+		sys.bcStack.PushI(c.hitdef.guard_pausetime)
+	case OC_ex2_hitdefvar_guard_shaketime:
+		sys.bcStack.PushI(c.hitdef.guard_shaketime)
+	case OC_ex2_hitdefvar_guard_sparkno:
+		sys.bcStack.PushI(c.hitdef.guard_sparkno)
+	case OC_ex2_hitdefvar_guarddamage:
+		sys.bcStack.PushI(c.hitdef.guarddamage)
 	case OC_ex2_hitdefvar_guardflag:
 		attr := (*(*int32)(unsafe.Pointer(&be[*i])))
 		sys.bcStack.PushB(
 			c.hitdef.guardflag&attr != 0,
 		)
 		*i += 4
+	case OC_ex2_hitdefvar_guardsound_group:
+		sys.bcStack.PushI(c.hitdef.guardsound[0])
+	case OC_ex2_hitdefvar_guardsound_number:
+		sys.bcStack.PushI(c.hitdef.guardsound[1])
+	case OC_ex2_hitdefvar_hitdamage:
+		sys.bcStack.PushI(c.hitdef.hitdamage)
 	case OC_ex2_hitdefvar_hitflag:
 		attr := (*(*int32)(unsafe.Pointer(&be[*i])))
 		sys.bcStack.PushB(
 			c.hitdef.hitflag&attr != 0,
 		)
 		*i += 4
-	case OC_ex2_hitdefvar_hitdamage:
-		sys.bcStack.PushI(c.hitdef.hitdamage)
-	case OC_ex2_hitdefvar_guarddamage:
-		sys.bcStack.PushI(c.hitdef.guarddamage)
-	case OC_ex2_hitdefvar_p1stateno:
-		sys.bcStack.PushI(c.hitdef.p1stateno)
-	case OC_ex2_hitdefvar_p2stateno:
-		sys.bcStack.PushI(c.hitdef.p2stateno)
-	case OC_ex2_hitdefvar_priority:
-		sys.bcStack.PushI(c.hitdef.priority)
-	case OC_ex2_hitdefvar_id:
-		sys.bcStack.PushI(c.hitdef.id)
-	case OC_ex2_hitdefvar_sparkno:
-		sys.bcStack.PushI(c.hitdef.sparkno)
-	case OC_ex2_hitdefvar_guard_sparkno:
-		sys.bcStack.PushI(c.hitdef.guard_sparkno)
-	case OC_ex2_hitdefvar_sparkx:
-		sys.bcStack.PushF(c.hitdef.sparkxy[0] * (c.localscl / oc.localscl))
-	case OC_ex2_hitdefvar_sparky:
-		sys.bcStack.PushF(c.hitdef.sparkxy[1] * (c.localscl / oc.localscl))
-	case OC_ex2_hitdefvar_pausetime:
-		sys.bcStack.PushI(c.hitdef.pausetime)
-	case OC_ex2_hitdefvar_guard_pausetime:
-		sys.bcStack.PushI(c.hitdef.guard_pausetime)
-	case OC_ex2_hitdefvar_shaketime:
-		sys.bcStack.PushI(c.hitdef.shaketime)
-	case OC_ex2_hitdefvar_guard_shaketime:
-		sys.bcStack.PushI(c.hitdef.guard_shaketime)
 	case OC_ex2_hitdefvar_hitsound_group:
 		sys.bcStack.PushI(c.hitdef.hitsound[0])
 	case OC_ex2_hitdefvar_hitsound_number:
 		sys.bcStack.PushI(c.hitdef.hitsound[1])
-	case OC_ex2_hitdefvar_guardsound_group:
-		sys.bcStack.PushI(c.hitdef.guardsound[0])
-	case OC_ex2_hitdefvar_guardsound_number:
-		sys.bcStack.PushI(c.hitdef.guardsound[1])
+	case OC_ex2_hitdefvar_id:
+		sys.bcStack.PushI(c.hitdef.id)
+	case OC_ex2_hitdefvar_p1stateno:
+		sys.bcStack.PushI(c.hitdef.p1stateno)
+	case OC_ex2_hitdefvar_p2stateno:
+		sys.bcStack.PushI(c.hitdef.p2stateno)
+	case OC_ex2_hitdefvar_pausetime:
+		sys.bcStack.PushI(c.hitdef.pausetime)
+	case OC_ex2_hitdefvar_priority:
+		sys.bcStack.PushI(c.hitdef.priority)
+	case OC_ex2_hitdefvar_shaketime:
+		sys.bcStack.PushI(c.hitdef.shaketime)
+	case OC_ex2_hitdefvar_sparkno:
+		sys.bcStack.PushI(c.hitdef.sparkno)
+	case OC_ex2_hitdefvar_sparkx:
+		sys.bcStack.PushF(c.hitdef.sparkxy[0] * (c.localscl / oc.localscl))
+	case OC_ex2_hitdefvar_sparky:
+		sys.bcStack.PushF(c.hitdef.sparkxy[1] * (c.localscl / oc.localscl))
 	// HitByAttr
 	case OC_ex2_hitbyattr:
 		sys.bcStack.PushB(c.hitByAttrTrigger(*(*int32)(unsafe.Pointer(&be[*i]))))
@@ -4851,6 +4875,7 @@ type helper StateControllerBase
 
 const (
 	helper_helpertype byte = iota
+	helper_clsnproxy
 	helper_name
 	helper_postype
 	helper_ownpal
@@ -4927,6 +4952,8 @@ func (sc helper) Run(c *Char, _ []int32) bool {
 			}
 		case helper_name:
 			h.name = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
+		case helper_clsnproxy:
+			h.isclsnproxy = exp[0].evalB(c)
 		case helper_postype:
 			pt = PosType(exp[0].evalI(c))
 		case helper_ownpal:
@@ -6674,6 +6701,7 @@ const (
 	hitDef_p1stateno
 	hitDef_p2stateno
 	hitDef_p2getp1state
+	hitDef_missonoverride
 	hitDef_p1sprpriority
 	hitDef_p2sprpriority
 	hitDef_forcestand
@@ -6845,6 +6873,8 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, paramID byte, exp []BytecodeExp) bo
 		hd.p2getp1state = true
 	case hitDef_p2getp1state:
 		hd.p2getp1state = exp[0].evalB(c)
+	case hitDef_missonoverride:
+		hd.missonoverride = Btoi(exp[0].evalB(c))
 	case hitDef_p1sprpriority:
 		hd.p1sprpriority = exp[0].evalI(c)
 	case hitDef_p2sprpriority:
@@ -7230,6 +7260,7 @@ const (
 	// projectile_platformheight
 	// projectile_platformfence
 	// projectile_platformangle
+	projectile_last = iota + hitDef_last + 1 - 1
 	projectile_redirectid
 )
 
@@ -7504,10 +7535,10 @@ func (sc modifyReversalDef) Run(c *Char, _ []int32) bool {
 	return false
 }
 
-type modifyProjectile hitDef
+type modifyProjectile projectile
 
 const (
-	modifyProjectile_redirectid = iota + hitDef_last + 1
+	modifyProjectile_redirectid = iota + projectile_last + 1
 	modifyProjectile_id
 	modifyProjectile_index
 )
@@ -7551,6 +7582,11 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 				}
 			}
 			switch paramID {
+			case projectile_projid:
+				v1 := exp[0].evalI(c)
+				eachProj(func(p *Projectile) {
+					p.id = v1
+				})
 			case projectile_projremove:
 				v1 := exp[0].evalB(c)
 				eachProj(func(p *Projectile) {
@@ -9361,7 +9397,7 @@ func (sc hitOverride) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
-	if st < 0 && !ks {
+	if st < 0 && !ks && !f {
 		t = 0
 	}
 	pn := crun.playerNo
@@ -11677,6 +11713,11 @@ const (
 func (sc modifyBgm) Run(c *Char, _ []int32) bool {
 	var volumeSet, loopStartSet, loopEndSet, posSet, freqSet = false, false, false, false, false
 	var volume, loopstart, loopend, position int = 100, 0, 0, 0
+	// Safety default sets
+	if sl, ok := sys.bgm.volctrl.Streamer.(*StreamLooper); ok {
+		loopstart = sl.loopstart
+		loopend = sl.loopend
+	}
 	var freqmul float32 = 1.0
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -12948,6 +12989,8 @@ const (
 	getHitVarSet_attr
 	getHitVarSet_chainid
 	getHitVarSet_ctrltime
+	getHitVarSet_damage
+	getHitVarSet_dizzypoints
 	getHitVarSet_down_recover
 	getHitVarSet_down_recovertime
 	getHitVarSet_fall
@@ -12967,12 +13010,15 @@ const (
 	getHitVarSet_fallcount
 	getHitVarSet_ground_animtype
 	getHitVarSet_groundtype
+	getHitVarSet_guardcount
 	getHitVarSet_guarded
+	getHitVarSet_guardpoints
+	getHitVarSet_hitcount
 	getHitVarSet_hitshaketime
 	getHitVarSet_hittime
 	getHitVarSet_id
 	getHitVarSet_playerno
-	getHitVarSet_recovertime
+	getHitVarSet_redlife
 	getHitVarSet_slidetime
 	getHitVarSet_xvel
 	getHitVarSet_yvel
@@ -12998,6 +13044,10 @@ func (sc getHitVarSet) Run(c *Char, _ []int32) bool {
 			crun.ghv.hitid = exp[0].evalI(c)
 		case getHitVarSet_ctrltime:
 			crun.ghv.ctrltime = exp[0].evalI(c)
+		case getHitVarSet_damage:
+			crun.ghv.damage = exp[0].evalI(c)
+		case getHitVarSet_dizzypoints:
+			crun.ghv.dizzypoints = exp[0].evalI(c)
 		case getHitVarSet_down_recover:
 			crun.ghv.down_recover = exp[0].evalB(c)
 		case getHitVarSet_down_recovertime:
@@ -13034,8 +13084,14 @@ func (sc getHitVarSet) Run(c *Char, _ []int32) bool {
 			crun.ghv.fallcount = exp[0].evalI(c)
 		case getHitVarSet_groundtype:
 			crun.ghv.groundtype = HitType(exp[0].evalI(c))
+		case getHitVarSet_guardcount:
+			crun.ghv.guardcount = exp[0].evalI(c)
 		case getHitVarSet_guarded:
 			crun.ghv.guarded = exp[0].evalB(c)
+		case getHitVarSet_guardpoints:
+			crun.ghv.guardpoints = exp[0].evalI(c)
+		case getHitVarSet_hitcount:
+			crun.ghv.hitcount = exp[0].evalI(c)
 		case getHitVarSet_hittime:
 			crun.ghv.hittime = exp[0].evalI(c)
 		case getHitVarSet_hitshaketime:
@@ -13044,6 +13100,8 @@ func (sc getHitVarSet) Run(c *Char, _ []int32) bool {
 			crun.ghv.playerId = exp[0].evalI(c)
 		case getHitVarSet_playerno:
 			crun.ghv.playerNo = int(exp[0].evalI(c))
+		case getHitVarSet_redlife:
+			crun.ghv.redlife = exp[0].evalI(c)
 		case getHitVarSet_slidetime:
 			crun.ghv.slidetime = exp[0].evalI(c)
 		case getHitVarSet_xvel:

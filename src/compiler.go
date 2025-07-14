@@ -399,6 +399,7 @@ var triggerMap = map[string]int{
 	"inputtime":          1,
 	"introstate":         1,
 	"isasserted":         1,
+	"isclsnproxy":        1,
 	"ishost":             1,
 	"lastplayerid":       1,
 	"layerno":            1,
@@ -2623,7 +2624,7 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		}
 		// no-op (for y/xveladd and fall.envshake.dir)
 	case "groundlevel":
-		out.append(OC_ex_, OC_ex_groundlevel)
+		out.append(OC_ex2_, OC_ex2_groundlevel)
 	case "guardcount":
 		out.append(OC_ex_, OC_ex_guardcount)
 	case "helperindexexist":
@@ -2687,48 +2688,60 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		}
 		isFlag := false
 		switch param {
+		case "guard.dist.depth.bottom":
+			opc = OC_ex2_hitdefvar_guard_dist_depth_bottom
+		case "guard.dist.depth.top":
+			opc = OC_ex2_hitdefvar_guard_dist_depth_top
+		case "guard.dist.height.bottom":
+			opc = OC_ex2_hitdefvar_guard_dist_height_bottom
+		case "guard.dist.height.top":
+			opc = OC_ex2_hitdefvar_guard_dist_height_top
+		case "guard.dist.width.back":
+			opc = OC_ex2_hitdefvar_guard_dist_width_back
+		case "guard.dist.width.front":
+			opc = OC_ex2_hitdefvar_guard_dist_width_front
+		case "guard.pausetime":
+			opc = OC_ex2_hitdefvar_guard_pausetime
+		case "guard.shaketime":
+			opc = OC_ex2_hitdefvar_guard_shaketime
+		case "guard.sparkno":
+			opc = OC_ex2_hitdefvar_guard_sparkno
+		case "guarddamage":
+			opc = OC_ex2_hitdefvar_guarddamage
 		case "guardflag":
 			opc = OC_ex2_hitdefvar_guardflag
 			isFlag = true
-		case "hitflag":
-			opc = OC_ex2_hitdefvar_hitflag
-			isFlag = true
-		case "hitdamage":
-			opc = OC_ex2_hitdefvar_hitdamage
-		case "guarddamage":
-			opc = OC_ex2_hitdefvar_guarddamage
-		case "p1stateno":
-			opc = OC_ex2_hitdefvar_p1stateno
-		case "p2stateno":
-			opc = OC_ex2_hitdefvar_p2stateno
-		case "priority":
-			opc = OC_ex2_hitdefvar_priority
-		case "id":
-			opc = OC_ex2_hitdefvar_id
-		case "sparkno":
-			opc = OC_ex2_hitdefvar_sparkno
-		case "guard.sparkno":
-			opc = OC_ex2_hitdefvar_guard_sparkno
-		case "sparkx":
-			opc = OC_ex2_hitdefvar_sparkx
-		case "sparky":
-			opc = OC_ex2_hitdefvar_sparky
-		case "pausetime":
-			opc = OC_ex2_hitdefvar_pausetime
-		case "guard.pausetime":
-			opc = OC_ex2_hitdefvar_guard_pausetime
-		case "shaketime":
-			opc = OC_ex2_hitdefvar_shaketime
-		case "guard.shaketime":
-			opc = OC_ex2_hitdefvar_guard_shaketime
-		case "hitsound.group":
-			opc = OC_ex2_hitdefvar_hitsound_group
-		case "hitsound.number":
-			opc = OC_ex2_hitdefvar_hitsound_number
 		case "guardsound.group":
 			opc = OC_ex2_hitdefvar_guardsound_group
 		case "guardsound.number":
 			opc = OC_ex2_hitdefvar_guardsound_number
+		case "hitdamage":
+			opc = OC_ex2_hitdefvar_hitdamage
+		case "hitflag":
+			opc = OC_ex2_hitdefvar_hitflag
+			isFlag = true
+		case "hitsound.group":
+			opc = OC_ex2_hitdefvar_hitsound_group
+		case "hitsound.number":
+			opc = OC_ex2_hitdefvar_hitsound_number
+		case "id":
+			opc = OC_ex2_hitdefvar_id
+		case "p1stateno":
+			opc = OC_ex2_hitdefvar_p1stateno
+		case "p2stateno":
+			opc = OC_ex2_hitdefvar_p2stateno
+		case "pausetime":
+			opc = OC_ex2_hitdefvar_pausetime
+		case "priority":
+			opc = OC_ex2_hitdefvar_priority
+		case "shaketime":
+			opc = OC_ex2_hitdefvar_shaketime
+		case "sparkno":
+			opc = OC_ex2_hitdefvar_sparkno
+		case "sparkx":
+			opc = OC_ex2_hitdefvar_sparkx
+		case "sparky":
+			opc = OC_ex2_hitdefvar_sparky
 		default:
 			return bvNone(), Error("Invalid HitDefVar argument: " + c.token)
 		}
@@ -2779,10 +2792,12 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		out.append(OC_ishelper)
 	case "ishometeam":
 		out.append(OC_ex_, OC_ex_ishometeam)
+	case "isclsnproxy":
+		out.append(OC_ex2_, OC_ex2_index)
 	case "index":
 		out.append(OC_ex2_, OC_ex2_index)
 	case "layerno":
-		out.append(OC_ex_, OC_ex_layerno)
+		out.append(OC_ex2_, OC_ex2_layerno)
 	case "leftedge":
 		out.append(OC_leftedge)
 	case "life", "p2life":
@@ -4366,6 +4381,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			out.append(OC_ex_, OC_ex_inputtime_L)
 		case "R":
 			out.append(OC_ex_, OC_ex_inputtime_R)
+		case "N":
+			out.append(OC_ex_, OC_ex_inputtime_N)
 		case "a":
 			out.append(OC_ex_, OC_ex_inputtime_a)
 		case "b":
@@ -6049,8 +6066,8 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 			sc := newStateControllerBase()
 			var scf scFunc
 			var triggerall []BytecodeExp
-			// Flag if this trigger can never be true
-			allUtikiri := false
+			// Flag if following triggers can never be true because of triggerall = 0
+			allTerminated := false
 			var trigger [][]BytecodeExp
 			var trexist []int8
 			// Parse each line of the sctrl to get triggers and settings
@@ -6087,9 +6104,9 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 					// If triggerall = 0 is encountered, flag it
 					if len(be) == 2 && be[0] == OC_int8 {
 						if be[1] == 0 {
-							allUtikiri = true
+							allTerminated = true
 						}
-					} else if !allUtikiri {
+					} else if !allTerminated {
 						triggerall = append(triggerall, be)
 					}
 				default:
@@ -6136,7 +6153,7 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 						} else if trexist[tn] == 0 {
 							trexist[tn] = 1
 						}
-					} else if !allUtikiri && trexist[tn] >= 0 {
+					} else if !allTerminated && trexist[tn] >= 0 {
 						trigger[tn] = append(trigger[tn], be)
 						trexist[tn] = 1
 					}
@@ -6151,7 +6168,7 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 			if scf == nil {
 				return errmes(Error("State controller type not specified"))
 			}
-			if len(trexist) == 0 || (!allUtikiri && trexist[0] == 0) {
+			if len(trexist) == 0 || (!allTerminated && trexist[0] == 0) {
 				return errmes(Error("Missing trigger1"))
 			}
 
@@ -6162,7 +6179,7 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 				texp.append(OC_jz8, 0)
 				texp.append(OC_pop)
 			}
-			if allUtikiri {
+			if allTerminated {
 				if len(texp) > 0 {
 					texp.appendValue(BytecodeBool(false))
 				}
@@ -6230,7 +6247,7 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 			appending := true
 			if len(c.block.trigger) == 0 {
 				appending = false
-				if !allUtikiri {
+				if !allTerminated {
 					for _, te := range trexist {
 						if te >= 0 {
 							if te > 0 {
@@ -7360,12 +7377,12 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 			// Read files section to find the command and state filenames
 			if files {
 				files = false
-				cmd, stcommon = is["cmd"], is["stcommon"]
+				cmd, stcommon = decodeShiftJIS(is["cmd"]), decodeShiftJIS(is["stcommon"])
 				re := regexp.MustCompile(`^st[0-9]*$`)
 				// Sorted starting with "st" and followed by "st<num>" in natural order
 				for _, v := range SortedKeys(is) {
 					if re.MatchString(v) {
-						st = append(st, is[v])
+						st = append(st, decodeShiftJIS(is[v]))
 					}
 				}
 
@@ -7459,17 +7476,20 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 				rm("m", &ckr.m, &ckr.nm)
 			}
 		case "defaults":
-			// Read default command time and buffer time
+			// Read default command parameters
 			if defaults {
 				defaults = false
 				is.ReadI32("command.time", &c.cmdl.DefaultTime)
+				is.ReadI32("command.key.time", &c.cmdl.DefaultKeyTime)
 				var i32 int32
 				if is.ReadI32("command.buffer.time", &i32) {
 					c.cmdl.DefaultBufferTime = Max(1, i32)
 				}
+				is.ReadBool("command.buffer.hitpause", &c.cmdl.DefaultBufferHitpause)
+				is.ReadBool("command.buffer.pauseend", &c.cmdl.DefaultBufferPauseEnd)
 			}
 		default:
-			// Read input commands
+			// Read command inputs
 			if len(name) >= 7 && name[:7] == "command" {
 				cmds = append(cmds, is)
 			}
@@ -7487,12 +7507,21 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 			return nil, Error(cmd + ":\nname = " + is["name"] +
 				"\ncommand = " + is["command"] + "\n" + err.Error())
 		}
-		cm.time, cm.buftime = c.cmdl.DefaultTime, c.cmdl.DefaultBufferTime
-		is.ReadI32("time", &cm.time)
+		// Default parameters
+		cm.maxtime = c.cmdl.DefaultTime
+		cm.maxbuftime = c.cmdl.DefaultBufferTime
+		cm.maxkeytime = c.cmdl.DefaultKeyTime
+		cm.buffer_hitpause = c.cmdl.DefaultBufferHitpause
+		cm.buffer_pauseend = c.cmdl.DefaultBufferPauseEnd
+		// Read specific parameters
+		is.ReadI32("time", &cm.maxtime)
+		is.ReadI32("key.time", &cm.maxkeytime)
 		var i32 int32
 		if is.ReadI32("buffer.time", &i32) {
-			cm.buftime = Max(1, i32)
+			cm.maxbuftime = Max(1, i32)
 		}
+		is.ReadBool("buffer.hitpause", &cm.buffer_hitpause)
+		is.ReadBool("buffer.pauseend", &cm.buffer_pauseend)
 		c.cmdl.Add(*cm)
 	}
 

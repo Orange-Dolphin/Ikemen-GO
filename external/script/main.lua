@@ -358,7 +358,7 @@ if main.flags['-speedtest'] ~= nil then
 	setGameSpeed(100 * gameOption('Config.Framerate'))
 end
 if main.flags['-nosound'] ~= nil then
-	setVolumeMaster(0)
+	modifyGameOption('Sound.MasterVolume', 0)
 end
 if main.flags['-togglelifebars'] ~= nil then
 	toggleLifebarDisplay()
@@ -371,6 +371,18 @@ if main.flags['-debug'] ~= nil then
 end
 if main.flags['-setport'] ~= nil then
 	setListenPort(main.flags['-setport'])
+end
+if main.flags['-setvolume'] ~= nil and main.flags['-nosound'] == nil then
+	modifyGameOption('Sound.MasterVolume', main.flags['-setvolume'])
+end
+if main.flags['-windowed'] ~= nil then
+	modifyGameOption('Video.Fullscreen', false)
+end
+if main.flags['-width'] then
+	modifyGameOption('Video.GameWidth', main.flags['-width'])
+end
+if main.flags['-height'] then 
+	modifyGameOption('Video.GameHeight', main.flags['-height'])
 end
 
 --motif

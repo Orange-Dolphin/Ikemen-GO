@@ -13,7 +13,7 @@ Default.Enable.Tag = 1
 
 ; Backward compatibility toggles
 Default.LegacyGameDistanceSpec = 1  ; 1 prevents GameWidth/GameHeight from being affected by stage zoom for mugenversion 1.0 chars
-Input.PauseOnHitPause = 1           ; 1 makes inputs to be retained during hit pause
+Input.PauseOnHitPause = 1           ; 1 makes inputs to be retained during hit pause. Deprecated. See command parameters
 
 ; Rules
 Default.Attack.LifeToPowerMul = 0.7 ; multiplier for power the attacker gets when a normal/special attack successfully hits (overridden by getpower HitDef option)

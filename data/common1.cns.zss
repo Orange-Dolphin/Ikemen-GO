@@ -846,7 +846,7 @@ if time = 0 {
 }
 notHitBy{value: SCA; time: 1}
 if animTime = 0 {
-	hitFallSet{value: 1}
+	hitFallSet{value: 1} # This seems to have been a typo in the original common1.cns, but it is harmless anyway
 	notHitBy{value: , NT,ST,HT; time: 12}
 	notHitBy{value2: SCA; time: 3}
 	changeState{value: 0; ctrl: 1}

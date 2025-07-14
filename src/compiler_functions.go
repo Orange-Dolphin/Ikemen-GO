@@ -592,6 +592,10 @@ func (c *Compiler) helper(is IniSection, sc *StateControllerBase, _ int8) (State
 		}); err != nil {
 			return err
 		}
+		if err := c.paramValue(is, sc, "clsnproxy",
+			helper_clsnproxy, VT_Bool, 1, false); err != nil {
+			return err
+		}
 		if err := c.stateParam(is, "name", false, func(data string) error {
 			if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
 				return Error("Helper name not enclosed in \"")
@@ -1787,6 +1791,10 @@ func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 	}
 	if err := c.paramValue(is, sc, "p2getp1state",
 		hitDef_p2getp1state, VT_Bool, 1, false); err != nil {
+		return err
+	}
+	if err := c.paramValue(is, sc, "missonoverride",
+		hitDef_missonoverride, VT_Bool, 1, false); err != nil {
 		return err
 	}
 	b := false
@@ -5918,6 +5926,14 @@ func (c *Compiler) getHitVarSet(is IniSection, sc *StateControllerBase, _ int8) 
 			getHitVarSet_ctrltime, VT_Int, 1, false); err != nil {
 			return err
 		}
+		if err := c.paramValue(is, sc, "damage",
+			getHitVarSet_damage, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "dizzypoints",
+			getHitVarSet_dizzypoints, VT_Int, 1, false); err != nil {
+			return err
+		}
 		if err := c.paramValue(is, sc, "down.recover",
 			getHitVarSet_down_recover, VT_Bool, 1, false); err != nil {
 			return err
@@ -5990,8 +6006,20 @@ func (c *Compiler) getHitVarSet(is IniSection, sc *StateControllerBase, _ int8) 
 			getHitVarSet_groundtype, VT_Int, 1, false); err != nil {
 			return err
 		}
+		if err := c.paramValue(is, sc, "guardcount",
+			getHitVarSet_guardcount, VT_Int, 1, false); err != nil {
+			return err
+		}
 		if err := c.paramValue(is, sc, "guarded",
 			getHitVarSet_guarded, VT_Bool, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "guardpoints",
+			getHitVarSet_guardpoints, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "hitcount",
+			getHitVarSet_hittime, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "hitshaketime",
@@ -6010,8 +6038,8 @@ func (c *Compiler) getHitVarSet(is IniSection, sc *StateControllerBase, _ int8) 
 			getHitVarSet_playerno, VT_Int, 1, false); err != nil {
 			return err
 		}
-		if err := c.paramValue(is, sc, "recovertime",
-			getHitVarSet_recovertime, VT_Int, 1, false); err != nil {
+		if err := c.paramValue(is, sc, "redlife",
+			getHitVarSet_redlife, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "slidetime",

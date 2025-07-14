@@ -29,6 +29,7 @@ const (
 	CK_UR
 	CK_DL
 	CK_DR
+	CK_N
 	CK_rU // r stands for release (~)
 	CK_rD
 	CK_rB
@@ -43,6 +44,7 @@ const (
 	CK_rUR
 	CK_rDL
 	CK_rDR
+	CK_rN
 	CK_Us // s stands for sign ($)
 	CK_Ds
 	CK_Bs
@@ -57,6 +59,7 @@ const (
 	CK_URs
 	CK_DLs
 	CK_DRs
+	CK_Ns
 	CK_rUs // ~ and $ together
 	CK_rDs
 	CK_rBs
@@ -71,6 +74,7 @@ const (
 	CK_rURs
 	CK_rDLs
 	CK_rDRs
+	CK_rNs
 	CK_a
 	CK_b
 	CK_c
@@ -95,15 +99,15 @@ const (
 )
 
 func (ck CommandKey) IsDirectionPress() bool {
-	return ck >= CK_U && ck <= CK_DR || ck >= CK_Us && ck <= CK_DRs
+	return ck >= CK_U && ck < CK_rU || ck >= CK_Us && ck < CK_rUs
 }
 
 func (ck CommandKey) IsDirectionRelease() bool {
-	return ck >= CK_rU && ck <= CK_rDR || ck >= CK_rUs && ck <= CK_rDRs
+	return ck >= CK_rU && ck < CK_Us || ck >= CK_rUs && ck < CK_a
 }
 
 func (ck CommandKey) IsButtonPress() bool {
-	return ck >= CK_a && ck <= CK_m
+	return ck >= CK_a && ck < CK_ra
 }
 
 func (ck CommandKey) IsButtonRelease() bool {
@@ -673,9 +677,9 @@ func (ir *InputReader) ButtonAssistCheck(a, b, c, x, y, z, s, d, w bool) (bool, 
 }
 
 type InputBuffer struct {
-	Bb, Db, Fb, Ub, Lb, Rb                 int32
+	Bb, Db, Fb, Ub, Lb, Rb, Nb             int32
 	ab, bb, cb, xb, yb, zb, sb, db, wb, mb int32
-	B, D, F, U, L, R                       int8
+	B, D, F, U, L, R, N                    int8
 	a, b, c, x, y, z, s, d, w, m           int8
 	InputReader                            *InputReader
 }
@@ -689,7 +693,7 @@ func NewInputBuffer() (c *InputBuffer) {
 
 func (c *InputBuffer) Reset() {
 	*c = InputBuffer{
-		B: -1, D: -1, F: -1, U: -1, L: -1, R: -1, // Set directions to released state
+		B: -1, D: -1, F: -1, U: -1, L: -1, R: -1, N: 1, // Set directions to released state
 		a: -1, b: -1, c: -1, x: -1, y: -1, z: -1, s: -1, d: -1, w: -1, m: -1, // Set buttons to released state
 		InputReader: NewInputReader(),
 	}
@@ -728,6 +732,13 @@ func (__ *InputBuffer) updateInputTime(U, D, L, R, B, F, a, b, c, x, y, z, s, d,
 		__.F *= -1
 	}
 	__.Fb += int32(__.F)
+	// Neutral
+	if (!U && !D && !F && !B) != (__.N > 0) {
+		__.Nb = 0
+		__.N *= -1
+	}
+	__.Nb += int32(__.N)
+	// Buttons
 	if a != (__.a > 0) {
 		__.ab = 0
 		__.a *= -1
@@ -784,33 +795,35 @@ func (__ *InputBuffer) updateInputTime(U, D, L, R, B, F, a, b, c, x, y, z, s, d,
 func (__ *InputBuffer) State(ck CommandKey) int32 {
 	switch ck {
 	case CK_U:
-		return Min(-Max(__.Bb, __.Fb), __.Ub)
+		return Min(-Max(__.Bb, Max(__.Db, __.Fb)), __.Ub)
 	case CK_D:
-		return Min(-Max(__.Bb, __.Fb), __.Db)
+		return Min(-Max(__.Bb, Max(__.Ub, __.Fb)), __.Db)
 	case CK_B:
-		return Min(-Max(__.Db, __.Ub), __.Bb)
+		return Min(-Max(__.Db, Max(__.Ub, __.Fb)), __.Bb)
 	case CK_F:
-		return Min(-Max(__.Db, __.Ub), __.Fb)
+		return Min(-Max(__.Db, Max(__.Ub, __.Bb)), __.Fb)
 	case CK_L:
-		return Min(-Max(__.Db, __.Ub), __.Lb)
+		return Min(-Max(__.Db, Max(__.Ub, __.Rb)), __.Lb)
 	case CK_R:
-		return Min(-Max(__.Db, __.Ub), __.Rb)
+		return Min(-Max(__.Db, Max(__.Ub, __.Lb)), __.Rb)
 	case CK_UF:
-		return Min(__.Ub, __.Fb)
+		return Min(Min(-__.Db, __.Ub), Min(-__.Bb, __.Fb))
 	case CK_UB:
-		return Min(__.Ub, __.Bb)
+		return Min(Min(-__.Db, __.Ub), Min(-__.Fb, __.Bb))
 	case CK_DF:
-		return Min(__.Db, __.Fb)
+		return Min(Min(-__.Ub, __.Db), Min(-__.Bb, __.Fb))
 	case CK_DB:
-		return Min(__.Db, __.Bb)
+		return Min(Min(-__.Ub, __.Db), Min(-__.Fb, __.Bb))
 	case CK_UL:
-		return Min(__.Ub, __.Lb)
+		return Min(Min(-__.Db, __.Ub), Min(-__.Rb, __.Lb))
 	case CK_UR:
-		return Min(__.Ub, __.Rb)
+		return Min(Min(-__.Db, __.Ub), Min(-__.Lb, __.Rb))
 	case CK_DL:
-		return Min(__.Db, __.Lb)
+		return Min(Min(-__.Ub, __.Db), Min(-__.Rb, __.Lb))
 	case CK_DR:
-		return Min(__.Db, __.Rb)
+		return Min(Min(-__.Ub, __.Db), Min(-__.Lb, __.Rb))
+	case CK_N, CK_Ns:
+		return __.Nb
 	case CK_Us:
 		return __.Ub
 	case CK_Ds:
@@ -860,33 +873,33 @@ func (__ *InputBuffer) State(ck CommandKey) int32 {
 	case CK_m:
 		return __.mb
 	case CK_rU:
-		return -Min(-Max(__.Bb, __.Fb), __.Ub)
+		return -Min(-Max(__.Bb, Max(__.Db, __.Fb)), __.Ub)
 	case CK_rD:
-		return -Min(-Max(__.Bb, __.Fb), __.Db)
+		return -Min(-Max(__.Bb, Max(__.Ub, __.Fb)), __.Db)
 	case CK_rB:
-		return -Min(-Max(__.Db, __.Ub), __.Bb)
+		return -Min(-Max(__.Db, Max(__.Ub, __.Fb)), __.Bb)
 	case CK_rF:
-		return -Min(-Max(__.Db, __.Ub), __.Fb)
+		return -Min(-Max(__.Db, Max(__.Ub, __.Bb)), __.Fb)
 	case CK_rL:
-		return -Min(-Max(__.Db, __.Ub), __.Lb)
+		return -Min(-Max(__.Db, Max(__.Ub, __.Rb)), __.Lb)
 	case CK_rR:
-		return -Min(-Max(__.Db, __.Ub), __.Rb)
-	case CK_rUB:
-		return -Min(__.Ub, __.Bb)
+		return -Min(-Max(__.Db, Max(__.Ub, __.Lb)), __.Rb)
 	case CK_rUF:
-		return -Min(__.Ub, __.Fb)
-	case CK_rDB:
-		return -Min(__.Db, __.Bb)
+		return -Min(Min(-__.Db, __.Ub), Min(-__.Bb, __.Fb))
+	case CK_rUB:
+		return -Min(Min(-__.Db, __.Ub), Min(-__.Fb, __.Bb))
 	case CK_rDF:
-		return -Min(__.Db, __.Fb)
+		return -Min(Min(-__.Ub, __.Db), Min(-__.Bb, __.Fb))
+	case CK_rDB:
+		return -Min(Min(-__.Ub, __.Db), Min(-__.Fb, __.Bb))
 	case CK_rUL:
-		return -Min(__.Ub, __.Lb)
+		return -Min(Min(-__.Db, __.Ub), Min(-__.Rb, __.Lb))
 	case CK_rUR:
-		return -Min(__.Ub, __.Rb)
+		return -Min(Min(-__.Db, __.Ub), Min(-__.Lb, __.Rb))
 	case CK_rDL:
-		return -Min(__.Db, __.Lb)
+		return -Min(Min(-__.Ub, __.Db), Min(-__.Rb, __.Lb))
 	case CK_rDR:
-		return -Min(__.Db, __.Rb)
+		return -Min(Min(-__.Ub, __.Db), Min(-__.Lb, __.Rb))
 	case CK_rUs:
 		return -__.Ub
 	case CK_rDs:
@@ -915,6 +928,8 @@ func (__ *InputBuffer) State(ck CommandKey) int32 {
 		return -Min(__.Db, __.Lb)
 	case CK_rDRs:
 		return -Min(__.Db, __.Rb)
+	case CK_rN, CK_rNs:
+		return -__.Nb
 	case CK_ra:
 		return -__.ab
 	case CK_rb:
@@ -1024,6 +1039,10 @@ func (__ *InputBuffer) State2(ck CommandKey) int32 {
 		//	return f(__.State(CK_DF), __.State(CK_D), __.State(CK_F))
 		//case CK_rUFs:
 		//	return f(__.State(CK_UF), __.State(CK_U), __.State(CK_F))
+	case CK_N, CK_Ns:
+		return __.State(CK_N)
+	case CK_rN, CK_rNs:
+		return __.State(CK_rN)
 	}
 	return __.State(ck)
 }
@@ -1220,7 +1239,7 @@ func (nc *NetConnection) writeI32(i32 int32) error {
 
 func (nc *NetConnection) Synchronize() error {
 	if !nc.IsConnected() || nc.st == NS_Error {
-		return Error("Can not connect to the other player")
+		return Error("Cannot connect to the other player")
 	}
 	nc.Stop()
 	var seed int32
@@ -1547,18 +1566,22 @@ func (ce *cmdElem) IsDirToButton(next cmdElem) bool {
 
 // Command refers to each individual command from the CMD file
 type Command struct {
-	name                string
-	hold                [][]CommandKey
-	held                []bool
-	cmd                 []cmdElem
-	cmdidx, chargeidx   int
-	time, curtime       int32
-	buftime, curbuftime int32
-	completeflag        bool
+	name                   string
+	hold                   [][]CommandKey
+	held                   []bool
+	cmd                    []cmdElem
+	cmdidx, chargeidx      int
+	maxtime, curtime       int32
+	maxbuftime, curbuftime int32
+	maxkeytime, curkeytime int32
+	buffer_hitpause        bool
+	buffer_pauseend        bool
+	completeframe          bool
+	hasSlash               bool
 }
 
 func newCommand() *Command {
-	return &Command{chargeidx: -1, time: 1, buftime: 1}
+	return &Command{chargeidx: -1, maxtime: 1, maxbuftime: 1, hasSlash: false}
 }
 
 // This is used to first compile the commands
@@ -1594,6 +1617,7 @@ func ReadCommand(name, cmdstr string, kr *CommandKeyRemap) (*Command, error) {
 			r := nextChar()
 			if r == '/' {
 				ce.slash = true
+				c.hasSlash = true
 				nextChar()
 				break
 			} else if r == '~' {
@@ -1612,6 +1636,7 @@ func ReadCommand(name, cmdstr string, kr *CommandKeyRemap) (*Command, error) {
 			}
 		case '/':
 			ce.slash = true
+			c.hasSlash = true
 			nextChar()
 		}
 		for len(cestr) > 0 {
@@ -1716,6 +1741,13 @@ func ReadCommand(name, cmdstr string, kr *CommandKeyRemap) (*Command, error) {
 					ce.key = append(ce.key, CK_rR)
 				} else {
 					ce.key = append(ce.key, CK_R)
+				}
+				tilde = false
+			case 'N':
+				if tilde {
+					ce.key = append(ce.key, CK_rN)
+				} else {
+					ce.key = append(ce.key, CK_N)
 				}
 				tilde = false
 			case 'a':
@@ -1864,6 +1896,13 @@ func ReadCommand(name, cmdstr string, kr *CommandKeyRemap) (*Command, error) {
 						ce.key = append(ce.key, CK_Rs)
 					}
 					tilde = false
+				case 'N': // TODO: We probably don't need these but input.go currently expects them to exist (15 directions of each sign type)
+					if tilde {
+						ce.key = append(ce.key, CK_rNs)
+					} else {
+						ce.key = append(ce.key, CK_Ns)
+					}
+					tilde = false
 				default:
 					// error
 					continue
@@ -1895,6 +1934,7 @@ func (c *Command) Clear(bufreset bool) {
 	c.cmdidx = 0
 	c.chargeidx = -1
 	c.curtime = 0
+	c.curkeytime = 0
 	if bufreset {
 		c.curbuftime = 0
 	}
@@ -1904,7 +1944,11 @@ func (c *Command) Clear(bufreset bool) {
 }
 
 // Check if inputs match the command elements
-func (c *Command) bufTest(ibuf *InputBuffer, ai bool, holdTemp *[CK_Last + 1]bool) bool {
+func (c *Command) bufTest(ibuf *InputBuffer, ai bool, isHelper bool, holdTemp *[CK_Last + 1]bool) bool {
+	if ai && isHelper && !c.hasSlash {
+		// MUGEN's internal AI can't use commands without the "/" symbol on helpers.
+		return false
+	}
 	anyHeld, notHeld := false, 0
 	if len(c.hold) > 0 && !ai {
 		if holdTemp == nil {
@@ -1958,10 +2002,11 @@ func (c *Command) bufTest(ibuf *InputBuffer, ai bool, holdTemp *[CK_Last + 1]boo
 			}
 		}
 		c.cmdidx++
+		c.curkeytime = 0
 		return true
 	}
 	fail := func() bool {
-		// Fist input requires something to be pressed/held
+		// First input requires something to be pressed/held
 		if c.cmdidx == 0 {
 			return anyHeld
 		}
@@ -1974,7 +2019,7 @@ func (c *Command) bufTest(ibuf *InputBuffer, ai bool, holdTemp *[CK_Last + 1]boo
 				}
 			}
 			c.Clear(false)
-			return c.bufTest(ibuf, ai, holdTemp)
+			return c.bufTest(ibuf, ai, isHelper, holdTemp)
 		}
 		return true
 	}
@@ -1999,7 +2044,7 @@ func (c *Command) bufTest(ibuf *InputBuffer, ai bool, holdTemp *[CK_Last + 1]boo
 			// Not sure what this is reproducing yet
 		} else if c.cmdidx > 0 && len(c.cmd[c.cmdidx-1].key) == 1 && len(c.cmd[c.cmdidx].key) == 1 && // If elements are single key
 			c.cmd[c.cmdidx-1].key[0] < CK_Us && c.cmd[c.cmdidx].key[0] < CK_rU && // "Not sign" then "not sign not release" (simple direction)
-			(c.cmd[c.cmdidx-1].key[0]%14 == c.cmd[c.cmdidx].key[0]%14) { // Same direction, regardless of symbol. There are 14 directions
+			(c.cmd[c.cmdidx-1].key[0]%15 == c.cmd[c.cmdidx].key[0]%15) { // Same direction, regardless of symbol. There are 15 directions
 			if ibuf.B < 0 && ibuf.D < 0 && ibuf.F < 0 && ibuf.U < 0 { // If no direction held
 				c.chargeidx = c.cmdidx
 			} else {
@@ -2025,29 +2070,48 @@ func (c *Command) bufTest(ibuf *InputBuffer, ai bool, holdTemp *[CK_Last + 1]boo
 	}
 	// Conditions met. Go to next element
 	c.cmdidx++
+	c.curkeytime = 0
 	// Both elements in a direction to button transition are checked in same the frame
 	if c.cmdidx < len(c.cmd) && c.cmd[c.cmdidx-1].IsDirToButton(c.cmd[c.cmdidx]) {
-		return c.bufTest(ibuf, ai, holdTemp)
+		return c.bufTest(ibuf, ai, isHelper, holdTemp)
 	}
 	return true
 }
 
 // Update an individual command
-func (c *Command) Step(ibuf *InputBuffer, ai, hitpause bool, buftime int32) {
-	if !hitpause && c.curbuftime > 0 {
+func (c *Command) Step(ibuf *InputBuffer, ai, isHelper, hpbuf, pausebuf bool, extratime int32) {
+	// Skip hitpause buffering
+	if !c.buffer_hitpause {
+		hpbuf = false
+		extratime = 0
+	}
+
+	// Skip Pause/SuperPause buffering
+	if !c.buffer_pauseend {
+		pausebuf = false
+		extratime = 0
+	}
+
+	// Decrease current buffer timer if not paused
+	if c.curbuftime > 0 && !hpbuf && !pausebuf {
 		c.curbuftime--
 	}
+
+	// Skip blank input commands
 	if len(c.cmd) == 0 {
 		return
 	}
+
+	// Make sure current buffer timer doesn't accidentally decrease
 	ocbt := c.curbuftime
 	defer func() {
 		if c.curbuftime < ocbt {
 			c.curbuftime = ocbt
 		}
 	}()
+
 	var holdTemp *[CK_Last + 1]bool
-	if ibuf == nil || !c.bufTest(ibuf, ai, holdTemp) {
+	if ibuf == nil || !c.bufTest(ibuf, ai, isHelper, holdTemp) {
 		foo := c.chargeidx == 0 && c.cmdidx == 0
 		c.Clear(false)
 		if foo {
@@ -2055,38 +2119,61 @@ func (c *Command) Step(ibuf *InputBuffer, ai, hitpause bool, buftime int32) {
 		}
 		return
 	}
+
+	// Handle command timers. Freeze at first input if it starts with a hold
 	if c.cmdidx == 1 && c.cmd[0].slash {
 		c.curtime = 0
+		c.curkeytime = 0
 	} else {
 		c.curtime++
+		c.curkeytime++
 	}
-	c.completeflag = (c.cmdidx == len(c.cmd))
-	if !c.completeflag && (ai || c.curtime <= c.time) {
-		return
+
+	// Check if command input was completed in this frame
+	c.completeframe = (c.cmdidx == len(c.cmd))
+
+	if !c.completeframe {
+		// AI ignores timers
+		if ai {
+			return
+		}
+		// Keep command going if timers allows it
+		if c.curtime <= c.maxtime && (c.maxkeytime < 0 || c.curkeytime <= c.maxkeytime) {
+			return
+		}
 	}
+
+	// Clear command if complete or if timers expired
 	c.Clear(false)
-	if c.completeflag {
+
+	if c.completeframe {
 		// Update buffer time only if it's lower. Mugen doesn't do this but it seems like the right thing to do
-		c.curbuftime = Max(c.curbuftime, c.buftime+buftime)
+		c.curbuftime = Max(c.curbuftime, c.maxbuftime+extratime)
 	}
 }
 
 // Command List refers to the entire set of a character's commands
 // Each player has multiple lists: one with its own commands, and a copy of each other player's lists
 type CommandList struct {
-	Buffer            *InputBuffer
-	Names             map[string]int
-	Commands          [][]Command
-	DefaultTime       int32
-	DefaultBufferTime int32
+	Buffer                *InputBuffer
+	Names                 map[string]int
+	Commands              [][]Command
+	DefaultTime           int32
+	DefaultKeyTime        int32
+	DefaultBufferTime     int32
+	DefaultBufferHitpause bool
+	DefaultBufferPauseEnd bool
 }
 
 func NewCommandList(cb *InputBuffer) *CommandList {
 	return &CommandList{
-		Buffer:            cb,
-		Names:             make(map[string]int),
-		DefaultTime:       15,
-		DefaultBufferTime: 1,
+		Buffer:                cb,
+		Names:                 make(map[string]int),
+		DefaultTime:           15,
+		DefaultKeyTime:        -1,
+		DefaultBufferTime:     1,
+		DefaultBufferHitpause: true,
+		DefaultBufferPauseEnd: true,
 	}
 }
 
@@ -2214,11 +2301,12 @@ func (cl *CommandList) Assert(name string, time int32) bool {
 	return has
 }
 
-// Reset commands with a given name
+// Reset command when another command with the same name is completed
+// This prevents "piano inputs" from triggering the same special move with each button. TODO: This should be optional
 func (cl *CommandList) ClearName(name string) {
 	for i := range cl.Commands {
 		for j := range cl.Commands[i] {
-			if !cl.Commands[i][j].completeflag && cl.Commands[i][j].name == name {
+			if !cl.Commands[i][j].completeframe && cl.Commands[i][j].name == name {
 				cl.Commands[i][j].Clear(false) // Keep their buffer time. Mugen doesn't do this but it seems like the right thing to do
 			}
 		}
@@ -2226,21 +2314,20 @@ func (cl *CommandList) ClearName(name string) {
 }
 
 // Used when updating commands in each frame
-func (cl *CommandList) Step(facing int32, ai, hitpause bool, buftime int32) {
+func (cl *CommandList) Step(facing int32, ai, isHelper, hpbuf, pausebuf bool, extratime int32) {
 	if cl.Buffer != nil {
 		for i := range cl.Commands {
 			for j := range cl.Commands[i] {
-				cl.Commands[i][j].Step(cl.Buffer, ai, hitpause, buftime)
+				cl.Commands[i][j].Step(cl.Buffer, ai, isHelper, hpbuf, pausebuf, extratime)
 			}
 		}
 		// Find completed commands and reset all duplicate instances
 		// This loop must be run separately from the previous one
-		// TODO: This could be controlled by a command parameter that decides if its buffer should be shared with other commands of same name
 		for i := range cl.Commands {
 			for j := range cl.Commands[i] {
-				if cl.Commands[i][j].completeflag {
+				if cl.Commands[i][j].completeframe {
 					cl.ClearName(cl.Commands[i][j].name)
-					cl.Commands[i][j].completeflag = false
+					cl.Commands[i][j].completeframe = false
 				}
 			}
 		}

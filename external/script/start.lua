@@ -625,59 +625,122 @@ function start.f_setAssignedPal(ref, t_assignedPals)
 end
 
 --remaps palette based on button press and character's keymap settings
-function start.f_keyPalMap(ref, num, t_assignedPals)
-    local t_assignedPals = {}
-	start.f_setAssignedPal(ref, t_assignedPals)
-    local mappedPal = start.f_getCharData(ref).pal_keymap[num] or num
-    local totalPals = #start.f_getCharData(ref).pal
-	-- loop through the palette indices starting from mappedPal
-    for i = 0, totalPals - 1 do
-        -- calculate the current palette index, wrapping around if it exceeds totalPals
-        local currentPal = (mappedPal + i - 1) % totalPals + 1
-        -- check if the current palette is not already assigned
-        if not t_assignedPals[currentPal] then
-            return currentPal
-        end
-    end
-    -- if all palettes are assigned, return the mapped palette
-    return mappedPal
+function start.f_keyPalMap(ref, num)
+	return start.f_getCharData(ref).pal_keymap[num] or num
 end
 
 -- returns palette number
 function start.f_selectPal(ref, palno)
+    -- generate table with palette entries already used by this char ref
     local t_assignedPals = {}
     start.f_setAssignedPal(ref, t_assignedPals)
-	-- selected palette
-	if palno ~= nil and palno > 0 then
-		if not t_assignedPals[start.f_keyPalMap(ref, palno)] then
-			return start.f_keyPalMap(ref, palno)
-		else
-			for _, v in ipairs(start.f_getCharData(ref).pal) do
-				if not t_assignedPals[start.f_keyPalMap(ref, v)] then
-					return start.f_keyPalMap(ref, v)
-				end
-			end
-		end
-	-- default palette
-	elseif (not main.rotationChars and not gameOption('Arcade.AI.RandomColor')) or (main.rotationChars and not gameOption('Arcade.AI.SurvivalColor')) then
-		for _, v in ipairs(start.f_getCharData(ref).pal_defaults) do
-			if not t_assignedPals[v] then
-				return v
-			end
-		end
-	end
-	-- random palette
-	t = main.f_tableCopy(start.f_getCharData(ref).pal)
-	if #t_assignedPals >= #t then -- not enough palettes for unique selection
-		return t[math.random(1, #t)]
-	end
-	main.f_tableShuffle(t)
-	for k, v in ipairs(t) do
-		if not t_assignedPals[v] then
-			return v
-		end
-	end
-	panicError("\n" .. start.f_getCharData(ref).name .. " palette was not selected\n")
+    
+    local charData = start.f_getCharData(ref)
+    local availablePals = charData.pal
+
+    -- selected palette by player input
+    if palno ~= nil and palno > 0 then
+        local mappedPal = start.f_keyPalMap(ref, palno)
+
+        -- Check if the mapped palette is defined and not already used.
+        local isDefined = false
+        for _, p in ipairs(availablePals) do
+            if p == mappedPal then
+                isDefined = true
+                break
+            end
+        end
+
+        if isDefined and not t_assignedPals[mappedPal] then
+            return mappedPal
+        end
+        
+        -- If the desired palette is not available, find the next available one.
+        
+        -- 1. Dynamically build the list of palettes to cycle through
+        local cycleList = {1, 2, 3, 4, 5, 6}
+        local customDefaults = false
+
+        if charData.pal_defaults then
+            local defaultsSet = {}
+            for _, p_val in ipairs(charData.pal_defaults) do
+                if p_val > 6 then
+                    -- To avoid duplicates in cycleList
+                    if not defaultsSet[p_val] then
+                        table.insert(cycleList, p_val)
+                        defaultsSet[p_val] = true
+                        customDefaults = true
+                    end
+                end
+            end
+            if customDefaults then
+                table.sort(cycleList) -- Ensure a consistent cycle order
+            end
+        end
+		
+        -- Exception: If a palette from 7 to 12 was chosen directly, cycle through all 12
+        if mappedPal > 6 and not customDefaults then
+            cycleList = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+        end
+        
+        -- 2. Find the starting index for our search in the cycleList
+        local startIndex = 1
+        for i, p_val in ipairs(cycleList) do
+            if p_val == mappedPal then
+                startIndex = i
+                break
+            end
+        end
+
+        -- 3. Search for the next available palette in a circular manner
+        for i = 1, #cycleList do
+            -- Get the index for the next palette in the cycle
+            local nextIndex = (startIndex - 1 + i) % #cycleList + 1
+            local nextPal = cycleList[nextIndex]
+            
+            -- Check if this next palette is defined for the character
+            local isNextDefined = false
+            for _, p in ipairs(availablePals) do
+                if p == nextPal then
+                    isNextDefined = true
+                    break
+                end
+            end
+
+            -- If it's defined and not used, assign it.
+            if isNextDefined and not t_assignedPals[nextPal] then
+                return nextPal
+            end
+        end
+
+        -- If all palettes in the cycle list are taken, return the originally mapped one as a fallback.
+        return mappedPal
+
+    -- default palette for AI or no-input selection
+    elseif (not main.rotationChars and not gameOption('Arcade.AI.RandomColor')) or (main.rotationChars and not gameOption('Arcade.AI.SurvivalColor')) then
+        for _, v in ipairs(charData.pal_defaults) do
+            if not t_assignedPals[v] then
+                return v
+            end
+        end
+    end
+
+    -- random palette
+    local t = main.f_tableCopy(availablePals)
+    if #t_assignedPals >= #t then -- not enough palettes for unique selection
+        if #t > 0 then
+            return t[math.random(1, #t)]
+        else
+            return 1
+        end
+    end
+    main.f_tableShuffle(t)
+    for _, v in ipairs(t) do
+        if not t_assignedPals[v] then
+            return v
+        end
+    end
+    panicError("\n" .. charData.name .. " palette was not selected\n")
 end
 
 --returns ratio level

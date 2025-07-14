@@ -28,10 +28,6 @@ srcFiles=src/anim.go \
 Ikemen_GO.exe: ${srcFiles}
 	cd ./build && bash ./build.sh Win64
 
-# Windows 64-bit target (GL 3.2)
-Ikemen_GO_GL32.exe: ${srcFiles}
-	cd ./build && bash ./build.sh Win64GL32
-
 # Windows 32-bit target
 Ikemen_GO_86.exe: ${srcFiles}
 	cd ./build && bash ./build.sh Win32
@@ -40,17 +36,9 @@ Ikemen_GO_86.exe: ${srcFiles}
 Ikemen_GO_Linux: ${srcFiles}
 	cd ./build && ./build.sh Linux
 
-# Linux target (GL 3.2)
-Ikemen_GO_Linux_GL32: ${srcFiles}
-	cd ./build && ./build.sh LinuxGL32
-
 # Linux ARM target
 Ikemen_GO_LinuxARM: ${srcFiles}
 	cd ./build && ./build.sh LinuxARM
-
-# Linux ARM target (GL 3.2)
-Ikemen_GO_LinuxARM_GL32: ${srcFiles}
-	cd ./build && ./build.sh LinuxARMGL32
 
 # MacOS x64 target
 Ikemen_GO_MacOS: ${srcFiles}
