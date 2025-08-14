@@ -534,12 +534,24 @@ func (c *Compiler) changeAnimSub(is IniSection,
 		changeAnim_redirectid, VT_Int, 1, false); err != nil {
 		return err
 	}
+	if err := c.paramValue(is, sc, "animplayerno",
+		changeAnim_animplayerno, VT_Int, 1, false); err != nil {
+		return err
+	}
+	if err := c.paramValue(is, sc, "spriteplayerno",
+		changeAnim_spriteplayerno, VT_Int, 1, false); err != nil {
+		return err
+	}
 	if err := c.paramValue(is, sc, "readplayerid",
 		changeAnim_readplayerid, VT_Int, 1, false); err != nil {
 		return err
 	}
 	if err := c.paramValue(is, sc, "elem",
 		changeAnim_elem, VT_Int, 1, false); err != nil {
+		return err
+	}
+	if err := c.paramValue(is, sc, "elemtime",
+		changeAnim_elemtime, VT_Int, 1, false); err != nil {
 		return err
 	}
 	if err := c.stateParam(is, "value", true, func(data string) error {
@@ -964,6 +976,14 @@ func (c *Compiler) explod(is IniSection, sc *StateControllerBase,
 			explod_redirectid, VT_Int, 1, false); err != nil {
 			return err
 		}
+		if err := c.paramValue(is, sc, "animplayerno",
+			explod_animplayerno, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "spriteplayerno",
+			explod_spriteplayerno, VT_Int, 1, false); err != nil {
+			return err
+		}
 		if err := c.stateParam(is, "anim", false, func(data string) error {
 			prefix := c.getDataPrefix(&data, false)
 			return c.scAdd(sc, explod_anim, data, VT_Int, 1,
@@ -980,6 +1000,10 @@ func (c *Compiler) explod(is IniSection, sc *StateControllerBase,
 		}
 		if err := c.paramValue(is, sc, "animelem",
 			explod_animelem, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "animelemtime",
+			explod_animelemtime, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "animfreeze",
@@ -1021,7 +1045,7 @@ func (c *Compiler) modifyExplod(is IniSection, sc *StateControllerBase,
 	ihp int8) (StateController, error) {
 	ret, err := (*modifyExplod)(sc), c.stateSec(is, func() error {
 		if err := c.paramValue(is, sc, "redirectid",
-			explod_redirectid, VT_Int, 1, false); err != nil {
+			modifyexplod_redirectid, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "index",
@@ -1029,6 +1053,14 @@ func (c *Compiler) modifyExplod(is IniSection, sc *StateControllerBase,
 			return err
 		}
 		if err := c.explodSub(is, sc); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "animplayerno",
+			explod_animplayerno, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "spriteplayerno",
+			explod_spriteplayerno, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err := c.stateParam(is, "anim", false, func(data string) error {
@@ -1040,6 +1072,10 @@ func (c *Compiler) modifyExplod(is IniSection, sc *StateControllerBase,
 		}
 		if err := c.paramValue(is, sc, "animelem",
 			explod_animelem, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "animelemtime",
+			explod_animelemtime, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "animfreeze",
@@ -1546,6 +1582,34 @@ func (c *Compiler) afterImageTime(is IniSection, sc *StateControllerBase, _ int8
 	return *ret, err
 }
 
+func (c *Compiler) parseHitFlag(sc *StateControllerBase, id byte, data string) error {
+	var flg int32
+	for _, c := range data {
+		switch c {
+		case 'H', 'h':
+			flg |= int32(HF_H)
+		case 'L', 'l':
+			flg |= int32(HF_L)
+		case 'M', 'm':
+			flg |= int32(HF_H | HF_L)
+		case 'A', 'a':
+			flg |= int32(HF_A)
+		case 'F', 'f':
+			flg |= int32(HF_F)
+		case 'D', 'd':
+			flg |= int32(HF_D)
+		case 'P', 'p':
+			flg |= int32(HF_P)
+		case '-':
+			flg |= int32(HF_MNS)
+		case '+':
+			flg |= int32(HF_PLS)
+		}
+	}
+	sc.add(id, sc.iToExp(flg))
+	return nil
+}
+
 func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 	if err := c.stateParam(is, "attr", false, func(data string) error {
 		attr, err := c.attr(data, true)
@@ -1557,40 +1621,13 @@ func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 	}); err != nil {
 		return err
 	}
-	hflg := func(id byte, data string) error {
-		var flg int32
-		for _, c := range data {
-			switch c {
-			case 'H', 'h':
-				flg |= int32(HF_H)
-			case 'L', 'l':
-				flg |= int32(HF_L)
-			case 'M', 'm':
-				flg |= int32(HF_H | HF_L)
-			case 'A', 'a':
-				flg |= int32(HF_A)
-			case 'F', 'f':
-				flg |= int32(HF_F)
-			case 'D', 'd':
-				flg |= int32(HF_D)
-			case 'P', 'p':
-				flg |= int32(HF_P)
-			case '-':
-				flg |= int32(HF_MNS)
-			case '+':
-				flg |= int32(HF_PLS)
-			}
-		}
-		sc.add(id, sc.iToExp(flg))
-		return nil
-	}
 	if err := c.stateParam(is, "guardflag", false, func(data string) error {
-		return hflg(hitDef_guardflag, data)
+		return c.parseHitFlag(sc, hitDef_guardflag, data)
 	}); err != nil {
 		return err
 	}
 	if err := c.stateParam(is, "hitflag", false, func(data string) error {
-		return hflg(hitDef_hitflag, data)
+		return c.parseHitFlag(sc, hitDef_hitflag, data)
 	}); err != nil {
 		return err
 	}
@@ -1805,6 +1842,7 @@ func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 		return err
 	}
 	if !b {
+		// DOS Mugen used "sprpriority" instead of "p1sprpriority". Later versions seemingly kept both syntaxes
 		if err := c.paramValue(is, sc, "sprpriority",
 			hitDef_p1sprpriority, VT_Int, 1, false); err != nil {
 			return err
@@ -2201,6 +2239,10 @@ func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 		hitDef_guard_sparkscale, VT_Float, 2, false); err != nil {
 		return err
 	}
+	if err := c.paramValue(is, sc, "unhittabletime",
+		hitDef_unhittabletime, VT_Int, 2, false); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2242,8 +2284,19 @@ func (c *Compiler) reversalDef(is IniSection, sc *StateControllerBase, _ int8) (
 		}
 		if attr == -1 {
 			return Error("ReversalDef reversal.attr not specified")
+		} else {
+			sc.add(reversalDef_reversal_attr, sc.iToExp(attr))
 		}
-		sc.add(reversalDef_reversal_attr, sc.iToExp(attr))
+		if err := c.stateParam(is, "reversal.guardflag", false, func(data string) error {
+			return c.parseHitFlag(sc, reversalDef_reversal_guardflag, data)
+		}); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "reversal.guardflag.not", false, func(data string) error {
+			return c.parseHitFlag(sc, reversalDef_reversal_guardflag_not, data)
+		}); err != nil {
+			return err
+		}
 		return c.hitDefSub(is, sc)
 	})
 	return *ret, err
@@ -2251,20 +2304,30 @@ func (c *Compiler) reversalDef(is IniSection, sc *StateControllerBase, _ int8) (
 
 func (c *Compiler) modifyReversalDef(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	ret, err := (*modifyReversalDef)(sc), c.stateSec(is, func() error {
-		attr := int32(-1)
 		var err error
 		if err = c.paramValue(is, sc, "redirectid",
 			modifyReversalDef_redirectid, VT_Int, 1, false); err != nil {
 			return err
 		}
 		if err = c.stateParam(is, "reversal.attr", false, func(data string) error {
-			attr, err = c.attr(data, false)
-			return err
+			attr, err := c.attr(data, true)
+			if err != nil {
+				return err
+			}
+			sc.add(modifyReversalDef_reversal_attr, sc.iToExp(attr))
+			return nil
 		}); err != nil {
 			return err
 		}
-		if attr != -1 {
-			sc.add(modifyReversalDef_reversal_attr, sc.iToExp(attr))
+		if err := c.stateParam(is, "reversal.guardflag", false, func(data string) error {
+			return c.parseHitFlag(sc, modifyReversalDef_reversal_guardflag, data)
+		}); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "reversal.guardflag.not", false, func(data string) error {
+			return c.parseHitFlag(sc, modifyReversalDef_reversal_guardflag_not, data)
+		}); err != nil {
+			return err
 		}
 		return c.hitDefSub(is, sc)
 	})
@@ -3291,6 +3354,20 @@ func (c *Compiler) hitOverride(is IniSection, sc *StateControllerBase, _ int8) (
 			hitOverride_keepstate, VT_Bool, 1, false); err != nil {
 			return err
 		}
+		if err := c.paramValue(is, sc, "forceguard",
+			hitOverride_forceguard, VT_Bool, 1, false); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "guardflag", false, func(data string) error {
+			return c.parseHitFlag(sc, hitOverride_guardflag, data)
+		}); err != nil {
+			return err
+		}
+		if err := c.stateParam(is, "guardflag.not", false, func(data string) error {
+			return c.parseHitFlag(sc, hitOverride_guardflag_not, data)
+		}); err != nil {
+			return err
+		}
 		return nil
 	})
 	return *ret, err
@@ -4300,30 +4377,35 @@ func (c *Compiler) assertInput(is IniSection, sc *StateControllerBase, _ int8) (
 				sc.add(assertInput_flag, sc.iToExp(int32(IB_W)))
 			case "m":
 				sc.add(assertInput_flag, sc.iToExp(int32(IB_M)))
+			case "B":
+				sc.add(assertInput_flag_B, nil)
+			case "F":
+				sc.add(assertInput_flag_F, nil)
 			default:
 				return Error("Invalid AssertInput flag: " + data)
 			}
 			return nil
 		}
-		f := false
+		// Flag
+		flagSet := false
 		if err := c.stateParam(is, "flag", false, func(data string) error {
-			f = true
+			flagSet = true
 			return foo(data)
 		}); err != nil {
 			return err
 		}
-		if !f {
-			return Error("No AssertInput flags specified")
+		// Flag2-8
+		for i := 2; i <= 8; i++ {
+			key := fmt.Sprintf("flag%d", i)
+			if err := c.stateParam(is, key, false, func(data string) error {
+				flagSet = true
+				return foo(data)
+			}); err != nil {
+				return err
+			}
 		}
-		if err := c.stateParam(is, "flag2", false, func(data string) error {
-			return foo(data)
-		}); err != nil {
-			return err
-		}
-		if err := c.stateParam(is, "flag3", false, func(data string) error {
-			return foo(data)
-		}); err != nil {
-			return err
+		if !flagSet {
+			return Error("Must specify at least one AssertInput flag")
 		}
 		return nil
 	})
@@ -4828,10 +4910,6 @@ func (c *Compiler) playBgm(is IniSection, sc *StateControllerBase, _ int8) (Stat
 
 func (c *Compiler) modifyBGCtrl(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	ret, err := (*modifyBGCtrl)(sc), c.stateSec(is, func() error {
-		if err := c.paramValue(is, sc, "redirectid",
-			modifyBGCtrl_redirectid, VT_Int, 1, false); err != nil {
-			return err
-		}
 		if err := c.paramValue(is, sc, "id",
 			modifyBGCtrl_id, VT_Int, 1, true); err != nil {
 			return err
@@ -4907,10 +4985,6 @@ func (c *Compiler) modifyBGCtrl(is IniSection, sc *StateControllerBase, _ int8) 
 
 func (c *Compiler) modifyBGCtrl3d(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	ret, err := (*modifyBGCtrl3d)(sc), c.stateSec(is, func() error {
-		if err := c.paramValue(is, sc, "redirectid",
-			modifyBGCtrl3d_redirectid, VT_Int, 1, false); err != nil {
-			return err
-		}
 		if err := c.paramValue(is, sc, "id",
 			modifyBGCtrl3d_ctrlid, VT_Int, 1, true); err != nil {
 			return err
@@ -4997,10 +5071,6 @@ func (c *Compiler) modifySnd(is IniSection, sc *StateControllerBase, _ int8) (St
 
 func (c *Compiler) modifyBgm(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	ret, err := (*modifyBgm)(sc), c.stateSec(is, func() error {
-		if err := c.paramValue(is, sc, "redirectid",
-			modifyBgm_redirectid, VT_Int, 1, false); err != nil {
-			return err
-		}
 		if err := c.paramValue(is, sc, "volume",
 			modifyBgm_volume, VT_Int, 1, false); err != nil {
 			return err
@@ -5685,7 +5755,7 @@ func (c *Compiler) modifyStageVar(is IniSection, sc *StateControllerBase, _ int8
 			return err
 		}
 		if err := c.paramValue(is, sc, "reflection.color",
-			modifyStageVar_reflection_xshear, VT_Int, 3, false); err != nil {
+			modifyStageVar_reflection_color, VT_Int, 3, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "reflection.offset",
@@ -5869,6 +5939,10 @@ func (c *Compiler) modifyPlayer(is IniSection, sc *StateControllerBase, _ int8) 
 		}
 		if err := c.paramValue(is, sc, "supermovetime",
 			modifyPlayer_supermovetime, VT_Int, 1, false); err != nil {
+			return err
+		}
+		if err := c.paramValue(is, sc, "unhittabletime",
+			modifyPlayer_unhittabletime, VT_Int, 1, false); err != nil {
 			return err
 		}
 		return nil

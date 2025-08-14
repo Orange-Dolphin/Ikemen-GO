@@ -166,6 +166,7 @@ type Config struct {
 		ExternalShaders         []string `ini:"ExternalShaders"`
 		WindowScaleMode         bool     `ini:"WindowScaleMode"`
 		KeepAspect              bool     `ini:"KeepAspect"`
+		XyTruncate              bool     `ini:"XyTruncate"`
 		EnableModel             bool     `ini:"EnableModel"`
 		EnableModelShadow       bool     `ini:"EnableModelShadow"`
 	} `ini:"Video"`
@@ -207,7 +208,7 @@ type Config struct {
 	} `ini:"Netplay"`
 	Input struct {
 		ButtonAssist               bool    `ini:"ButtonAssist"`
-		SOCDResolution             int32   `ini:"SOCDResolution"`
+		SOCDResolution             int     `ini:"SOCDResolution"`
 		ControllerStickSensitivity float32 `ini:"ControllerStickSensitivity"`
 		XinputTriggerSensitivity   float32 `ini:"XinputTriggerSensitivity"`
 	} `ini:"Input"`
@@ -322,7 +323,7 @@ func (c *Config) normalize() {
 	c.SetValueUpdate("Sound.WavChannels", Clamp(c.Sound.WavChannels, 1, 256))
 	c.SetValueUpdate("Sound.PauseMasterVolume", int(Clamp(int32(c.Sound.PauseMasterVolume), 0, 100)))
 	c.SetValueUpdate("Sound.MaxBGMVolume", int(Clamp(int32(c.Sound.MaxBGMVolume), 100, 250)))
-	c.SetValueUpdate("Input.SOCDResolution", Clamp(c.Input.SOCDResolution, 0, 4))
+	c.SetValueUpdate("Input.SOCDResolution", int(Clamp(int32(c.Input.SOCDResolution), 0, 4)))
 	switch c.Video.MSAA {
 	case 0, 2, 4, 6, 8, 16, 32:
 	default:

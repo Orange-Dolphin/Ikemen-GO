@@ -571,12 +571,13 @@ func newBgCtrl() *bgCtrl {
 	}
 }
 
-func (bgc *bgCtrl) read(is IniSection, idx int) {
+func (bgc *bgCtrl) read(is IniSection, idx int) error {
 	bgc.idx = idx
 	xy := false
 	srcdst := false
 	palfx := false
-	switch strings.ToLower(is["type"]) {
+	data := strings.ToLower(is["type"])
+	switch data {
 	case "anim":
 		bgc._type = BT_Anim
 	case "visible":
@@ -621,6 +622,8 @@ func (bgc *bgCtrl) read(is IniSection, idx int) {
 	case "veladd":
 		bgc._type = BT_VelAdd
 		xy = true
+	default:
+		return Error("Invalid BGCtrl type: " + data)
 	}
 	is.ReadI32("time", &bgc.starttime)
 	bgc.endtime = bgc.starttime
@@ -676,6 +679,7 @@ func (bgc *bgCtrl) read(is IniSection, idx int) {
 		is.readI32ForStage("value", &bgc.v[0], &bgc.v[1], &bgc.v[2])
 	}
 	is.ReadI32("sctrlid", &bgc.sctrlid)
+	return nil
 }
 
 func (bgc *bgCtrl) xEnable() bool {
@@ -839,11 +843,13 @@ type Stage struct {
 	stageTime         int32
 	constants         map[string]float32
 	partnerspacing    int32
+	ikemenver         [3]uint16
+	ikemenverF        float32
 	mugenver          [2]uint16
+	mugenverF         float32
 	reload            bool
 	stageprops        StageProps
 	model             *Model
-	ikemenver         [3]uint16
 	topbound          float32
 	botbound          float32
 }
@@ -925,31 +931,16 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 		s.nameLow = strings.ToLower(s.name)
 		s.displaynameLow = strings.ToLower(s.displayname)
 		s.authorLow = strings.ToLower(s.author)
+		// Clear then read MugenVersion
 		s.mugenver = [2]uint16{}
+		s.mugenverF = 0
 		if str, ok := sec[0]["mugenversion"]; ok {
-			for k, v := range SplitAndTrim(str, ".") {
-				if k >= len(s.mugenver) {
-					break
-				}
-				if v, err := strconv.ParseUint(v, 10, 16); err == nil {
-					s.mugenver[k] = uint16(v)
-				} else {
-					break
-				}
-			}
+			s.mugenver, s.mugenverF = parseMugenVersion(str)
 		}
+		// Clear then read IkemenVersion
 		s.ikemenver = [3]uint16{}
 		if str, ok := sec[0]["ikemenversion"]; ok {
-			for k, v := range SplitAndTrim(str, ".") {
-				if k >= len(s.ikemenver) {
-					break
-				}
-				if v, err := strconv.ParseUint(v, 10, 16); err == nil {
-					s.ikemenver[k] = uint16(v)
-				} else {
-					break
-				}
-			}
+			s.ikemenver, s.ikemenverF = parseIkemenVersion(str)
 		}
 		// If the MUGEN version is lower than 1.0, default to camera pixel rounding (floor)
 		if s.ikemenver[0] == 0 && s.ikemenver[1] == 0 && s.mugenver[0] != 1 {
@@ -967,7 +958,7 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 				}
 			}
 			if ac >= MaxAttachedChar {
-				sys.appendToConsole(fmt.Sprintf("Warning: You can define up to %d attachedchar(s). '%s' ignored.", MaxAttachedChar, i))
+				sys.appendToConsole(fmt.Sprintf("Warning: You can only define up to %d attachedchar(s). '%s' ignored.", MaxAttachedChar, i))
 				continue
 			}
 			if err := sec[0].LoadFile(i, []string{def, "", sys.motifDir, "data/"}, func(filename string) error {
@@ -1177,6 +1168,11 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 			s.stageCamera.ytensionenable = true
 			sec[0].ReadI32("tensionhigh", &s.stageCamera.tensionhigh)
 		}
+		// Camera group warnings
+		// Warn when camera boundaries are smaller than player boundaries
+		if int32(s.leftbound) > s.stageCamera.boundleft || int32(s.rightbound) < s.stageCamera.boundright {
+			sys.appendToConsole("Warning: Stage player boundaries defined incorrectly")
+		}
 	}
 
 	// Music group
@@ -1342,6 +1338,10 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 		}
 		sec[0].readF32ForStage("offset", &s.sdw.offset[0], &s.sdw.offset[1])
 		sec[0].readF32ForStage("window", &s.sdw.window[0], &s.sdw.window[1], &s.sdw.window[2], &s.sdw.window[3])
+		// Shadow group warnings
+		if s.sdw.fadeend > s.sdw.fadebgn {
+			sys.appendToConsole("Warning: Stage shadow fade.range defined incorrectly")
+		}
 	}
 
 	// Reflection group
@@ -1463,7 +1463,9 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 					bgc.bg = append(bgc.bg, s.bg...)
 				}
 			}
-			bgc.read(is, len(s.bgc))
+			if err := bgc.read(is, len(s.bgc)); err != nil {
+				return nil, err
+			}
 			s.bgc = append(s.bgc, *bgc)
 		case "bgctrl3d":
 			bgc := newBgCtrl()
@@ -1471,7 +1473,9 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 			bgc.bg = nil
 			bgc.node = []*Node{}
 			bgc.anim = []*GLTFAnimation{}
-			bgc.read(is, len(s.bgc))
+			if err := bgc.read(is, len(s.bgc)); err != nil {
+				return nil, err
+			}
 			if ids := is.readI32CsvForStage("ctrlid"); len(ids) > 0 {
 				if len(ids) > 1 || ids[0] != -1 {
 					uniqueIDs := make(map[int32]bool)

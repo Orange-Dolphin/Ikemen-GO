@@ -562,13 +562,9 @@ func SearchFile(file string, dirs []string) string {
 			if baseDirInZip == "." {
 				baseDirInZip = ""
 			}
-			isRootRelative := strings.HasPrefix(file, "data/") || strings.HasPrefix(file, "font/") || strings.HasPrefix(file, "stages/")
-			if isRootRelative {
-			} else {
-				candidate = filepath.ToSlash(filepath.Join(zipFileCtx, baseDirInZip, file))
-				if found := FileExist(candidate); found != "" {
-					return found
-				}
+			candidate = filepath.ToSlash(filepath.Join(zipFileCtx, baseDirInZip, file))
+			if found := FileExist(candidate); found != "" {
+				return found
 			}
 		} else {
 			candidate = filepath.ToSlash(filepath.Join(filepath.Dir(dirCtx), file))
@@ -717,6 +713,67 @@ func sliceRemoveInt(array []int, index int) []int {
 func sliceMoveInt(array []int, srcIndex int, dstIndex int) []int {
 	value := array[srcIndex]
 	return sliceInsertInt(sliceRemoveInt(array, srcIndex), value, dstIndex)
+}
+
+// We save an array for precise checking, and a float for triggers
+func parseIkemenVersion(versionStr string) ([3]uint16, float32) {
+	var ver [3]uint16
+	parts := SplitAndTrim(versionStr, ".")
+	for i, s := range parts {
+		if i >= len(ver) {
+			break
+		}
+		if v, err := strconv.ParseUint(s, 10, 16); err == nil {
+			ver[i] = uint16(v)
+		} else {
+			break
+		}
+	}
+
+	// Convert into a float for triggers
+	re := regexp.MustCompile(`[^0-9.]`)
+	cleanStr := re.ReplaceAllString(versionStr, "")
+	// Keep only the first decimal point
+	strParts := strings.Split(cleanStr, ".")
+	if len(strParts) > 1 {
+		cleanStr = strParts[0] + "." + strings.Join(strParts[1:], "")
+	}
+	var verF float32
+	if result, err := strconv.ParseFloat(cleanStr, 32); err == nil {
+		verF = float32(result)
+	}
+
+	return ver, verF
+}
+
+func parseMugenVersion(versionStr string) ([2]uint16, float32) {
+	var ver [2]uint16
+	var verF float32
+
+	// Parse the string into the array
+	parts := SplitAndTrim(versionStr, ".")
+	for i, s := range parts {
+		if i >= len(ver) {
+			break
+		}
+		if v, err := strconv.ParseUint(s, 10, 16); err == nil {
+			ver[i] = uint16(v)
+		} else {
+			ver = [2]uint16{}
+			break
+		}
+	}
+
+	// Turn the array into the versions we know
+	if ver[0] == 1 && ver[1] == 1 {
+		verF = 1.1
+	} else if ver[0] == 1 && ver[1] == 0 {
+		verF = 1.0
+	} else if ver[0] != 0 {
+		verF = 0.5 // Arbitrary value
+	}
+
+	return ver, verF
 }
 
 type Error string
@@ -990,18 +1047,12 @@ func (l *Layout) DrawFaceSprite(x, y float32, ln int16, s *Sprite, fx *PalFX, fs
 
 		if *window != sys.scrrect {
 			w := window
-			if w[0] > w[2] {
-				w[0], w[2] = w[2], w[0]
-			}
-			if w[1] > w[3] {
-				w[1], w[3] = w[3], w[1]
-			}
 
 			var fwin [4]int32
-			fwin[0] = int32(float32(w[0]) * l.scale[0] * fscale)
-			fwin[1] = int32(float32(w[1]) * l.scale[1] * fscale)
-			fwin[2] = int32(float32(w[2]-w[0]) * l.scale[0] * fscale)
-			fwin[3] = int32(float32(w[3]-w[1]) * l.scale[1] * fscale)
+			fwin[0] = int32(float32(w[0]))
+			fwin[1] = int32(float32(w[1]) * fscale)
+			fwin[2] = int32(float32(w[2]))
+			fwin[3] = int32(float32(w[3]) * fscale)
 
 			drawwindow = &fwin
 		}
@@ -1250,8 +1301,8 @@ func (ats *AnimTextSnd) NoDisplay() bool {
 func (ats *AnimTextSnd) End(dt int32, inf bool) bool {
 	if ats.displaytime < 0 {
 		return len(ats.anim.anim.frames) == 0 || ats.anim.anim.loopend ||
-			(inf && ats.anim.anim.frames[ats.anim.anim.current].Time == -1 &&
-				ats.anim.anim.current == int32(len(ats.anim.anim.frames)-1))
+			(inf && ats.anim.anim.frames[ats.anim.anim.curelem].Time == -1 &&
+				ats.anim.anim.curelem == int32(len(ats.anim.anim.frames)-1))
 	}
 	return dt >= ats.displaytime
 }
@@ -1351,7 +1402,11 @@ func OpenFile(filename string) (io.ReadSeekCloser, error) {
 	if isZip {
 		zr, err := zip.OpenReader(zipFilePath)
 		if err != nil {
-			return nil, fmt.Errorf("opening zip archive %s: %w", zipFilePath, err)
+			f, err2 := os.Open(filename)
+			if err2 != nil {
+				return nil, fmt.Errorf("opening zip archive %s: %w", zipFilePath, err)
+			}
+			return f, nil
 		}
 
 		if pathInZip == "" {

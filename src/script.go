@@ -773,6 +773,43 @@ func systemScriptInit(l *lua.LState) {
 		a.Update()
 		return 0
 	})
+	luaRegister(l, "batchDraw", func(*lua.LState) int {
+		tbl := l.ToTable(1)
+		if tbl == nil {
+			l.RaiseError("batchDraw requires a table as its first argument")
+			return 0
+		}
+
+		tbl.ForEach(func(_, val lua.LValue) {
+			item, ok := val.(*lua.LTable)
+			if !ok {
+				// l.RaiseError("batchDraw expects a table of tables")
+				return
+			}
+
+			luaAnim := item.RawGetString("anim")
+
+			ud, ok := luaAnim.(*lua.LUserData)
+			if !ok {
+				return
+			}
+
+			anim, ok := ud.Value.(*Anim)
+			if !ok {
+				return
+			}
+
+			x := float32(lua.LVAsNumber(item.RawGetString("x")))
+			y := float32(lua.LVAsNumber(item.RawGetString("y")))
+
+			facing := float32(lua.LVAsNumber(item.RawGetString("facing")))
+
+			anim.SetPos(x/sys.luaSpriteScale+sys.luaSpriteOffsetX, y/sys.luaSpriteScale)
+			anim.SetFacing(facing)
+			anim.Draw()
+		})
+		return 0
+	})
 	luaRegister(l, "bgDraw", func(*lua.LState) int {
 		bg, ok := toUserData(l, 1).(*BGDef)
 		if !ok {
@@ -833,9 +870,9 @@ func systemScriptInit(l *lua.LState) {
 			if ffx {
 				preffix = "f"
 			}
-			c[0].changeAnim(an, c[0].playerNo, preffix)
+			c[0].changeAnim(an, c[0].playerNo, -1, preffix)
 			if !nilArg(l, 2) {
-				c[0].setAnimElem(int32(numArg(l, 2)))
+				c[0].setAnimElem(int32(numArg(l, 2)), 0)
 			}
 			l.Push(lua.LBool(true))
 			return 1
@@ -998,7 +1035,7 @@ func systemScriptInit(l *lua.LState) {
 			userDataError(l, 1, cl)
 		}
 		if cl.InputUpdate(int(numArg(l, 2))-1, 1, 0, 0, true) {
-			cl.Step(1, false, false, false, false, 0)
+			cl.Step(false, false, false, false, 0)
 		}
 		return 0
 	})
@@ -2320,14 +2357,14 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "replayRecord", func(*lua.LState) int {
 		if sys.netConnection != nil {
-			sys.netConnection.rep, _ = os.Create(strArg(l, 1))
+			sys.netConnection.recording, _ = os.Create(strArg(l, 1))
 		}
 		return 0
 	})
 	luaRegister(l, "replayStop", func(*lua.LState) int {
-		if sys.netConnection != nil && sys.netConnection.rep != nil {
-			sys.netConnection.rep.Close()
-			sys.netConnection.rep = nil
+		if sys.netConnection != nil && sys.netConnection.recording != nil {
+			sys.netConnection.recording.Close()
+			sys.netConnection.recording = nil
 		}
 		return 0
 	})
@@ -3895,7 +3932,13 @@ func triggerFunctions(l *lua.LState) {
 				case "angle y":
 					ln = lua.LNumber(e.anglerot[2] + e.interpolate_angle[2])
 				case "animelem":
-					ln = lua.LNumber(e.anim.current + 1)
+					ln = lua.LNumber(e.anim.curelem + 1)
+				case "animelemtime":
+					ln = lua.LNumber(e.anim.curelemtime)
+				case "animplayerno":
+					ln = lua.LNumber(e.animPN + 1)
+				case "spriteplayerno":
+					ln = lua.LNumber(e.spritePN + 1)
 				case "bindtime":
 					ln = lua.LNumber(e.bindtime)
 				case "drawpal group":
@@ -4019,13 +4062,13 @@ func triggerFunctions(l *lua.LState) {
 		case "sparky":
 			l.Push(lua.LNumber(c.hitdef.sparkxy[1]))
 		case "pausetime":
-			l.Push(lua.LNumber(c.hitdef.pausetime))
+			l.Push(lua.LNumber(c.hitdef.pausetime[0]))
 		case "guard.pausetime":
-			l.Push(lua.LNumber(c.hitdef.guard_pausetime))
+			l.Push(lua.LNumber(c.hitdef.guard_pausetime[0]))
 		case "shaketime":
-			l.Push(lua.LNumber(c.hitdef.shaketime))
+			l.Push(lua.LNumber(c.hitdef.pausetime[1]))
 		case "guard.shaketime":
-			l.Push(lua.LNumber(c.hitdef.guard_shaketime))
+			l.Push(lua.LNumber(c.hitdef.guard_pausetime[1]))
 		case "hitsound.group":
 			l.Push(lua.LNumber(c.hitdef.hitsound[0]))
 		case "hitsound.number":
@@ -4851,7 +4894,7 @@ func triggerFunctions(l *lua.LState) {
 				case "anim":
 					lv = lua.LNumber(p.anim)
 				case "animelem":
-					lv = lua.LNumber(p.ani.current + 1)
+					lv = lua.LNumber(p.ani.curelem + 1)
 				case "angle":
 					lv = lua.LNumber(p.anglerot[0])
 				case "angle x":
@@ -5196,12 +5239,16 @@ func triggerFunctions(l *lua.LState) {
 	})
 	luaRegister(l, "stagevar", func(*lua.LState) int {
 		switch strings.ToLower(strArg(l, 1)) {
-		case "info.name":
-			l.Push(lua.LString(sys.stage.name))
-		case "info.displayname":
-			l.Push(lua.LString(sys.stage.displayname))
 		case "info.author":
 			l.Push(lua.LString(sys.stage.author))
+		case "info.displayname":
+			l.Push(lua.LString(sys.stage.displayname))
+		case "info.ikemenversion":
+			l.Push(lua.LNumber(sys.stage.ikemenverF))
+		case "info.mugenversion":
+			l.Push(lua.LNumber(sys.stage.mugenverF))
+		case "info.name":
+			l.Push(lua.LString(sys.stage.name))
 		case "camera.boundleft":
 			l.Push(lua.LNumber(sys.stage.stageCamera.boundleft))
 		case "camera.boundright":
@@ -5659,7 +5706,7 @@ func triggerFunctions(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "hitoverridden", func(*lua.LState) int {
-		l.Push(lua.LBool(sys.debugWC.hoIdx >= 0))
+		l.Push(lua.LBool(sys.debugWC.hoverIdx >= 0))
 		return 1
 	})
 	luaRegister(l, "ikemenversion", func(*lua.LState) int {
@@ -5895,7 +5942,7 @@ func triggerFunctions(l *lua.LState) {
 		if !nilArg(l, 1) {
 			id = int32(numArg(l, 1))
 		}
-		l.Push(lua.LNumber(sys.debugWC.jugglePoints(BytecodeInt(id)).ToI()))
+		l.Push(lua.LNumber(sys.debugWC.jugglePoints(id)))
 		return 1
 	})
 	luaRegister(l, "lastplayerid", func(*lua.LState) int {
@@ -5946,7 +5993,7 @@ func triggerFunctions(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "mugenversion", func(*lua.LState) int {
-		l.Push(lua.LNumber(sys.debugWC.mugenVersionF()))
+		l.Push(lua.LNumber(sys.debugWC.gi().mugenverF))
 		return 1
 	})
 	luaRegister(l, "numplayer", func(*lua.LState) int {
@@ -6145,7 +6192,7 @@ func triggerFunctions(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "animtimesum", func(*lua.LState) int {
-		l.Push(lua.LNumber(sys.debugWC.anim.sumtime))
+		l.Push(lua.LNumber(sys.debugWC.anim.curtime))
 		return 1
 	})
 	luaRegister(l, "continue", func(*lua.LState) int {
@@ -6254,9 +6301,9 @@ func deprecatedFunctions(l *lua.LState) {
 				if ffx {
 					preffix = "f"
 				}
-				c[0].changeAnim(an, c[0].playerNo, preffix)
+				c[0].changeAnim(an, c[0].playerNo, -1, preffix)
 				if l.GetTop() >= 3 {
-					c[0].setAnimElem(int32(numArg(l, 3)))
+					c[0].setAnimElem(int32(numArg(l, 3)), 0)
 				}
 				l.Push(lua.LBool(true))
 				return 1

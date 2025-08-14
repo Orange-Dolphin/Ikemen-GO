@@ -89,11 +89,24 @@ func loadFightFx(def string, isGlobal bool) error {
 					return Error("A prefix must be declared")
 				}
 				prefix = strings.ToLower(prefix)
+				// Check if prefix overlaps a reserved one
 				if prefix == "f" || prefix == "s" {
-					return Error(fmt.Sprintf("%v prefix is reserved for the system and cannot be used", strings.ToUpper(prefix)))
+					return Error(fmt.Sprintf("The %s prefix is reserved for the system and cannot be used", strings.ToUpper(prefix)))
+				}
+				// Check if prefix conflicts with trigger names
+				if _, ok := triggerMap[prefix]; ok {
+					return Error(fmt.Sprintf("The %s prefix conflicts with an existing trigger name and cannot be used", strings.ToUpper(prefix)))
+				}
+				// Check if prefix is valid but already in use
+				// TODO: This shouldn't print a warning when just reloading everything
+				for used := range sys.ffx {
+					if prefix == used {
+						sys.appendToConsole(fmt.Sprintf("Duplicate common FX prefix found or reloaded: %s in %s", strings.ToUpper(prefix), def))
+					}
 				}
 				if ffx, ok := sys.ffx[prefix]; ok {
 					// グローバルFXは常に有効。キャラクターFXはカウントを増やす
+					// "Global FX are always enabled. Character FX increase the count"
 					if !isGlobal {
 						if ffx.refCount < 8 {
 							ffx.refCount += 1 + int((sys.numSimul[0]+sys.numSimul[1])/2)
@@ -152,9 +165,12 @@ func loadFightFx(def string, isGlobal bool) error {
 	for _, a := range ffx.fat {
 		a.start_scale = [...]float32{ffx.fx_scale, ffx.fx_scale}
 	}
-	if sys.ffx[prefix] == nil {
-		sys.ffxRegexp += "|^(" + prefix + ")"
-	}
+	// Adding used prefixes to a list is no longer necessary
+	// We will check if they're being used in the ffx map directly
+	//if sys.ffx[prefix] == nil {
+	//	sys.ffxRegexp += "|^(" + prefix + ")"
+	//	sys.ffxPrefixes = append(sys.ffxPrefixes, prefix)
+	//}
 	ffx.fileName = def
 	ffx.isGlobal = isGlobal
 	if isGlobal {
@@ -504,7 +520,7 @@ func (hb *HealthBar) step(ref int, hbr *HealthBar) {
 	hb.top.Action()
 	hb.mid.Action()
 	// Multiple front elements - red life
-	if sys.lifebar.redlifebar {
+	if sys.chars[ref][0].redLifeEnabled() {
 		var rv int32
 		for k := range hb.red {
 			if k > rv && redVal >= k {
@@ -626,7 +642,9 @@ func (hb *HealthBar) draw(layerno int16, ref int, hbr *HealthBar, f []*Fnt) {
 			//rr[2] -= Min(rr[2], lr[2])
 		}
 	}
-	if sys.lifebar.redlifebar {
+
+	// Draw red life
+	if sys.chars[ref][0].redLifeEnabled() {
 		var rv int32
 		for k := range hb.red {
 			if k > rv && redval >= k {
@@ -1085,7 +1103,7 @@ func readGuardBar(pre string, is IniSection,
 }
 
 func (gb *GuardBar) step(ref int, gbr *GuardBar, snd *Snd) {
-	if !sys.lifebar.guardbar {
+	if !sys.chars[ref][0].guardBreakEnabled() {
 		return
 	}
 
@@ -1151,18 +1169,21 @@ func (gb *GuardBar) reset() {
 }
 
 func (gb *GuardBar) bgDraw(layerno int16) {
-	if !sys.lifebar.guardbar {
-		return
-	}
+	// Handled in outer loop
+	//if !sys.lifebar.guardbar {
+	//	return
+	//}
+
 	gb.bg0.Draw(float32(gb.pos[0])+sys.lifebarOffsetX, float32(gb.pos[1])+sys.lifebarOffsetY, layerno, sys.lifebarScale)
 	gb.bg1.Draw(float32(gb.pos[0])+sys.lifebarOffsetX, float32(gb.pos[1])+sys.lifebarOffsetY, layerno, sys.lifebarScale)
 	gb.bg2.Draw(float32(gb.pos[0])+sys.lifebarOffsetX, float32(gb.pos[1])+sys.lifebarOffsetY, layerno, sys.lifebarScale)
 }
 
 func (gb *GuardBar) draw(layerno int16, ref int, gbr *GuardBar, f []*Fnt) {
-	if !sys.lifebar.guardbar {
-		return
-	}
+	// Handled in outer loop
+	//if !sys.lifebar.guardbar {
+	//	return
+	//}
 
 	points := float32(sys.chars[ref][0].guardPoints) / float32(sys.chars[ref][0].guardPointsMax)
 	if gb.invertfill {
@@ -1317,7 +1338,7 @@ func readStunBar(pre string, is IniSection,
 }
 
 func (sb *StunBar) step(ref int, sbr *StunBar, snd *Snd) {
-	if !sys.lifebar.stunbar {
+	if !sys.chars[ref][0].dizzyEnabled() {
 		return
 	}
 
@@ -1381,18 +1402,21 @@ func (sb *StunBar) reset() {
 }
 
 func (sb *StunBar) bgDraw(layerno int16) {
-	if !sys.lifebar.stunbar {
-		return
-	}
+	// Handled in outer loop
+	//if !sys.lifebar.stunbar {
+	//	return
+	//}
+
 	sb.bg0.Draw(float32(sb.pos[0])+sys.lifebarOffsetX, float32(sb.pos[1])+sys.lifebarOffsetY, layerno, sys.lifebarScale)
 	sb.bg1.Draw(float32(sb.pos[0])+sys.lifebarOffsetX, float32(sb.pos[1])+sys.lifebarOffsetY, layerno, sys.lifebarScale)
 	sb.bg2.Draw(float32(sb.pos[0])+sys.lifebarOffsetX, float32(sb.pos[1])+sys.lifebarOffsetY, layerno, sys.lifebarScale)
 }
 
 func (sb *StunBar) draw(layerno int16, ref int, sbr *StunBar, f []*Fnt) {
-	if !sys.lifebar.stunbar {
-		return
-	}
+	// Handled in outer loop
+	//if !sys.lifebar.stunbar {
+	//	return
+	//}
 
 	points := float32(sys.chars[ref][0].dizzyPoints) / float32(sys.chars[ref][0].dizzyPointsMax)
 	if sb.invertfill {
@@ -4866,7 +4890,7 @@ func (l *Lifebar) draw(layerno int16) {
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					if !sys.chars[v][0].asf(ASF_noguardbardisplay) {
+					if sys.chars[v][0].guardBreakEnabled() && !sys.chars[v][0].asf(ASF_noguardbardisplay) {
 						l.gb[l.ref[ti]][index].bgDraw(layerno)
 						l.gb[l.ref[ti]][index].draw(layerno, v, l.gb[l.ref[ti]][v], l.fnt[:])
 					}
@@ -4876,7 +4900,7 @@ func (l *Lifebar) draw(layerno int16) {
 			for ti := range sys.tmode {
 				for i, v := range l.order[ti] {
 					index := i*2 + ti
-					if !sys.chars[v][0].asf(ASF_nostunbardisplay) {
+					if sys.chars[v][0].dizzyEnabled() && !sys.chars[v][0].asf(ASF_nostunbardisplay) {
 						l.sb[l.ref[ti]][index].bgDraw(layerno)
 						l.sb[l.ref[ti]][index].draw(layerno, v, l.sb[l.ref[ti]][v], l.fnt[:])
 					}

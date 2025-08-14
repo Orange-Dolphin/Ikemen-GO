@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"strings"
 )
 
@@ -139,21 +140,20 @@ func ReadAnimFrame(line string) *AnimFrame {
 }
 
 type Animation struct {
-	sff                *Sff
-	palettedata        *PaletteList
-	spr                *Sprite
-	frames             []AnimFrame
-	tile               Tiling
-	loopstart          int32
-	interpolate_offset []int32
-	interpolate_scale  []int32
-	interpolate_angle  []int32
-	interpolate_blend  []int32
-	// Current frame
-	current                    int32
+	sff                        *Sff
+	palettedata                *PaletteList
+	spr                        *Sprite
+	frames                     []AnimFrame
+	tile                       Tiling
+	loopstart                  int32
+	interpolate_offset         []int32
+	interpolate_scale          []int32
+	interpolate_angle          []int32
+	interpolate_blend          []int32
+	curtime                    int32
+	curelem                    int32
+	curelemtime                int32
 	drawidx                    int32
-	time                       int32
-	sumtime                    int32
 	totaltime                  int32
 	looptime                   int32
 	prelooptime                int32
@@ -341,14 +341,14 @@ func ReadAction(sff *Sff, pal *PaletteList, lines []string, i *int) (no int32, a
 }
 
 func (a *Animation) Reset() {
-	a.current, a.drawidx = 0, 0
-	a.time, a.sumtime = 0, 0
+	a.curelem, a.drawidx = 0, 0
+	a.curelemtime, a.curtime = 0, 0
 	a.newframe, a.loopend = true, false
 	a.spr = nil
 }
 
 func (a *Animation) AnimTime() int32 {
-	return a.sumtime - a.totaltime
+	return a.curtime - a.totaltime
 }
 
 func (a *Animation) AnimElemTime(elem int32) int32 {
@@ -359,7 +359,7 @@ func (a *Animation) AnimElemTime(elem int32) int32 {
 		}
 		return t
 	}
-	e, t := Max(0, elem)-1, a.sumtime
+	e, t := Max(0, elem)-1, a.curtime
 	for i := int32(0); i < e; i++ {
 		t -= Max(0, a.frames[i].Time)
 	}
@@ -368,16 +368,16 @@ func (a *Animation) AnimElemTime(elem int32) int32 {
 
 func (a *Animation) AnimElemNo(time int32) int32 {
 	if len(a.frames) > 0 {
-		i, oldt := a.current, int32(0)
+		i, oldt := a.curelem, int32(0)
 		if time <= 0 {
-			time += a.time
+			time += a.curelemtime
 			loop := false
 			for {
 				if time >= 0 {
 					return i + 1
 				}
 				i--
-				if i < 0 || a.current >= a.loopstart && i < a.loopstart {
+				if i < 0 || a.curelem >= a.loopstart && i < a.loopstart {
 					if time == oldt {
 						break
 					}
@@ -391,7 +391,7 @@ func (a *Animation) AnimElemNo(time int32) int32 {
 				}
 			}
 		} else {
-			time += a.time
+			time += a.curelemtime
 			for {
 				time -= Max(0, a.frames[i].Time)
 				if time < 0 || i == int32(len(a.frames))-1 && a.frames[i].Time == -1 {
@@ -412,7 +412,7 @@ func (a *Animation) AnimElemNo(time int32) int32 {
 }
 
 func (a *Animation) curFrame() *AnimFrame {
-	return &a.frames[a.current]
+	return &a.frames[a.curelem]
 }
 
 func (a *Animation) CurrentFrame() *AnimFrame {
@@ -429,10 +429,10 @@ func (a *Animation) drawFrame() *AnimFrame {
 	return &a.frames[a.drawidx]
 }
 
-func (a *Animation) SetAnimElem(elem int32) {
-	a.current = Max(0, elem-1)
+func (a *Animation) SetAnimElem(elem, elemtime int32) {
+	a.curelem = Max(0, elem-1)
 	// If trying to set an element higher than the last one in the animation
-	if int(a.current) >= len(a.frames) {
+	if int(a.curelem) >= len(a.frames) {
 		//if a.totaltime == -1 {
 		//	a.current = int32(len(a.frames)) - 1
 		//} else if int32(len(a.frames))-a.loopstart > 0 { // Prevent division by zero crash
@@ -440,13 +440,26 @@ func (a *Animation) SetAnimElem(elem int32) {
 		//		(a.current-a.loopstart)%(int32(len(a.frames))-a.loopstart)
 		//}
 		// Mugen merely sets the element to 1
-		a.current = 0
+		a.curelem = 0
 	}
-	a.drawidx, a.time, a.newframe = a.current, 0, true
-	a.UpdateSprite()
+	a.drawidx = a.curelem
+
+	// Shortcut the most common elemtime
+	// Out of range elemtime is also set to 0, as with elem
+	if elemtime != 0 {
+		frametime := a.frames[a.curelem].Time
+		if elemtime < 0 || (frametime != -1 && elemtime >= frametime) {
+			elemtime = 0
+		}
+	}
+	a.curelemtime = elemtime
+
+	a.newframe = true
 	a.loopend = false
-	a.sumtime = 0 // Used within AnimElemTime
-	a.sumtime = -a.AnimElemTime(a.current + 1)
+	a.UpdateSprite()
+
+	a.curtime = 0 // Used within AnimElemTime, so must be set to 0 first
+	a.curtime = -a.AnimElemTime(a.curelem+1) + a.curelemtime
 }
 
 func (a *Animation) animSeek(elem int32) {
@@ -455,26 +468,26 @@ func (a *Animation) animSeek(elem int32) {
 	}
 	foo := true
 	for {
-		a.current = elem
-		for int(a.current) < len(a.frames) && a.curFrame().Time <= 0 {
-			if int(a.current) == len(a.frames)-1 && a.curFrame().Time == -1 {
+		a.curelem = elem
+		for int(a.curelem) < len(a.frames) && a.curFrame().Time <= 0 {
+			if int(a.curelem) == len(a.frames)-1 && a.curFrame().Time == -1 {
 				break
 			}
-			a.current++
+			a.curelem++
 		}
-		if int(a.current) < len(a.frames) {
+		if int(a.curelem) < len(a.frames) {
 			break
 		}
 		foo = !foo
 		if foo {
-			a.current = int32(len(a.frames) - 1)
+			a.curelem = int32(len(a.frames) - 1)
 			break
 		}
 	}
-	if a.current < 0 {
-		a.current = 0
-	} else if int(a.current) >= len(a.frames) {
-		a.current = int32(len(a.frames) - 1)
+	if a.curelem < 0 {
+		a.curelem = 0
+	} else if int(a.curelem) >= len(a.frames) {
+		a.curelem = int32(len(a.frames) - 1)
 	}
 }
 
@@ -483,18 +496,20 @@ func (a *Animation) UpdateSprite() {
 		return
 	}
 	if a.totaltime > 0 {
-		if a.sumtime >= a.totaltime {
-			a.time, a.newframe, a.current = 0, true, a.loopstart
+		if a.curtime >= a.totaltime {
+			a.curelemtime, a.newframe, a.curelem = 0, true, a.loopstart
 		}
-		a.animSeek(a.current)
-		if a.prelooptime < 0 && a.sumtime >= a.totaltime+a.prelooptime &&
-			a.sumtime >= a.totaltime-a.looptime &&
-			(a.sumtime == a.totaltime+a.prelooptime ||
-				a.sumtime == a.totaltime-a.looptime) {
-			a.time, a.newframe, a.current = 0, true, 0
+		a.animSeek(a.curelem)
+		if a.prelooptime < 0 && a.curtime >= a.totaltime+a.prelooptime &&
+			a.curtime >= a.totaltime-a.looptime &&
+			(a.curtime == a.totaltime+a.prelooptime ||
+				a.curtime == a.totaltime-a.looptime) {
+			a.curelemtime = 0
+			a.newframe = true
+			a.curelem = 0
 		}
 	}
-	if a.newframe && a.sff != nil && a.frames[a.current].Time != 0 {
+	if a.newframe && a.sff != nil && a.frames[a.curelem].Time != 0 {
 		group, number := a.curFrame().Group, a.curFrame().Number
 		if mg, ok := a.remap[group]; ok {
 			if mn, ok := mg[number]; ok {
@@ -503,7 +518,7 @@ func (a *Animation) UpdateSprite() {
 		}
 		a.spr = a.sff.GetSprite(group, number)
 	}
-	a.newframe, a.drawidx = false, a.current
+	a.newframe, a.drawidx = false, a.curelem
 
 	a.scale_x = a.frames[a.drawidx].Xscale
 	a.scale_y = a.frames[a.drawidx].Yscale
@@ -520,8 +535,8 @@ func (a *Animation) UpdateSprite() {
 	}
 	for _, i := range a.interpolate_offset {
 		if nextDrawidx == i && (a.frames[a.drawidx].Time >= 0) {
-			a.interpolate_offset_x = float32(a.frames[nextDrawidx].Xoffset-a.frames[a.drawidx].Xoffset) / float32(a.curFrame().Time) * float32(a.time)
-			a.interpolate_offset_y = float32(a.frames[nextDrawidx].Yoffset-a.frames[a.drawidx].Yoffset) / float32(a.curFrame().Time) * float32(a.time)
+			a.interpolate_offset_x = float32(a.frames[nextDrawidx].Xoffset-a.frames[a.drawidx].Xoffset) / float32(a.curFrame().Time) * float32(a.curelemtime)
+			a.interpolate_offset_y = float32(a.frames[nextDrawidx].Yoffset-a.frames[a.drawidx].Yoffset) / float32(a.curFrame().Time) * float32(a.curelemtime)
 			break
 		}
 	}
@@ -535,8 +550,8 @@ func (a *Animation) UpdateSprite() {
 			nextframe_scale_x = a.frames[nextDrawidx].Xscale
 			nextframe_scale_y = a.frames[nextDrawidx].Yscale
 
-			a.scale_x += (nextframe_scale_x - drawframe_scale_x) / float32(a.curFrame().Time) * float32(a.time)
-			a.scale_y += (nextframe_scale_y - drawframe_scale_y) / float32(a.curFrame().Time) * float32(a.time)
+			a.scale_x += (nextframe_scale_x - drawframe_scale_x) / float32(a.curFrame().Time) * float32(a.curelemtime)
+			a.scale_y += (nextframe_scale_y - drawframe_scale_y) / float32(a.curFrame().Time) * float32(a.curelemtime)
 			break
 		}
 	}
@@ -549,7 +564,7 @@ func (a *Animation) UpdateSprite() {
 			drawframe_angle = a.frames[a.drawidx].Angle
 			nextframe_angle = a.frames[nextDrawidx].Angle
 
-			a.angle += (nextframe_angle - drawframe_angle) / float32(a.curFrame().Time) * float32(a.time)
+			a.angle += (nextframe_angle - drawframe_angle) / float32(a.curFrame().Time) * float32(a.curelemtime)
 			break
 		}
 	}
@@ -557,8 +572,8 @@ func (a *Animation) UpdateSprite() {
 		byte(a.interpolate_blend_dstalpha) != 255 {
 		for _, i := range a.interpolate_blend {
 			if nextDrawidx == i && (a.frames[a.drawidx].Time >= 0) {
-				a.interpolate_blend_srcalpha += (float32(a.frames[nextDrawidx].SrcAlpha) - a.interpolate_blend_srcalpha) / float32(a.curFrame().Time) * float32(a.time)
-				a.interpolate_blend_dstalpha += (float32(a.frames[nextDrawidx].DstAlpha) - a.interpolate_blend_dstalpha) / float32(a.curFrame().Time) * float32(a.time)
+				a.interpolate_blend_srcalpha += (float32(a.frames[nextDrawidx].SrcAlpha) - a.interpolate_blend_srcalpha) / float32(a.curFrame().Time) * float32(a.curelemtime)
+				a.interpolate_blend_dstalpha += (float32(a.frames[nextDrawidx].DstAlpha) - a.interpolate_blend_dstalpha) / float32(a.curFrame().Time) * float32(a.curelemtime)
 				if byte(a.interpolate_blend_srcalpha) == 1 && byte(a.interpolate_blend_dstalpha) == 255 {
 					a.interpolate_blend_srcalpha = 0
 				}
@@ -579,13 +594,13 @@ func (a *Animation) Action() {
 	}
 	a.UpdateSprite()
 	next := func() {
-		if a.totaltime != -1 || int(a.current) < len(a.frames)-1 {
-			a.time = 0
+		if a.totaltime != -1 || int(a.curelem) < len(a.frames)-1 {
+			a.curelemtime = 0
 			a.newframe = true
 			for {
-				a.current++
-				if a.totaltime == -1 && int(a.current) == len(a.frames)-1 ||
-					int(a.current) >= len(a.frames) || a.curFrame().Time > 0 {
+				a.curelem++
+				if a.totaltime == -1 && int(a.curelem) == len(a.frames)-1 ||
+					int(a.curelem) >= len(a.frames) || a.curFrame().Time > 0 {
 					break
 				}
 			}
@@ -594,22 +609,22 @@ func (a *Animation) Action() {
 	if a.curFrame().Time <= 0 {
 		next()
 	}
-	if int(a.current) < len(a.frames) {
-		a.time++
-		if a.time >= a.curFrame().Time {
+	if int(a.curelem) < len(a.frames) {
+		a.curelemtime++
+		if a.curelemtime >= a.curFrame().Time {
 			next()
-			if int(a.current) >= len(a.frames) {
-				a.current = a.loopstart
+			if int(a.curelem) >= len(a.frames) {
+				a.curelem = a.loopstart
 			}
 		}
 	} else {
-		a.current = a.loopstart
+		a.curelem = a.loopstart
 	}
-	if a.totaltime != -1 && a.sumtime >= a.totaltime {
-		a.sumtime = a.totaltime - a.looptime
+	if a.totaltime != -1 && a.curtime >= a.totaltime {
+		a.curtime = a.totaltime - a.looptime
 	}
-	a.sumtime++
-	if a.totaltime != -1 && a.sumtime >= a.totaltime {
+	a.curtime++
+	if a.totaltime != -1 && a.curtime >= a.totaltime {
 		a.loopend = true
 	}
 }
@@ -957,26 +972,51 @@ func (dl *DrawList) add(sd *SprData) {
 		return
 	}
 
-	i, start := 0, 0
-	for l := len(*dl); l > 0; {
-		i = start + l>>1
-		if sd.priority <= (*dl)[i].priority {
-			l = i - start
-		} else if i == start {
-			i++
-			l = 0
-		} else {
-			l -= i - start
-			start = i
+	// Before: sort every time we add a sprite
+	// After: add all sprites first then sort before drawing
+	/*
+		i, start := 0, 0
+		for l := len(*dl); l > 0; {
+			i = start + l>>1
+			if sd.priority <= (*dl)[i].priority {
+				l = i - start
+			} else if i == start {
+				i++
+				l = 0
+			} else {
+				l -= i - start
+				start = i
+			}
 		}
-	}
-	*dl = append(*dl, nil)
-	copy((*dl)[i+1:], (*dl)[i:])
-	(*dl)[i] = sd
+		*dl = append(*dl, nil)
+		copy((*dl)[i+1:], (*dl)[i:])
+		(*dl)[i] = sd
+	*/
+
+	// Just append. We will sort everything later in one go
+	*dl = append(*dl, sd)
 }
 
 func (dl DrawList) draw(cameraX, cameraY, cameraScl float32) {
-	for _, s := range dl {
+	if len(dl) == 0 {
+		return
+	}
+
+	// Sort by descending sprpriority
+	sort.SliceStable(dl, func(i, j int) bool {
+		if dl[i].priority != dl[j].priority {
+			return dl[i].priority > dl[j].priority
+		}
+		return false
+	})
+
+	// Common variables
+	shake := sys.envShake.getOffset()
+
+	// Draw the entire list in reverse
+	for i := len(dl) - 1; i >= 0; i-- {
+		s := dl[i]
+
 		// Skip blank SprData
 		// https://github.com/ikemen-engine/Ikemen-GO/issues/2433
 		if s.isBlank() {
@@ -997,9 +1037,8 @@ func (dl DrawList) draw(cameraX, cameraY, cameraScl float32) {
 			pos = [2]float32{s.pos[0], s.pos[1] + float32(sys.gameHeight-240)}
 			cs = 1
 		} else {
-			es := sys.envShake.getOffset()
-			pos = [2]float32{(sys.cam.Offset[0]-es[0])/cs - (cameraX - s.pos[0]),
-				(sys.cam.GroundLevel()+(sys.cam.Offset[1]-es[1]))/cs -
+			pos = [2]float32{(sys.cam.Offset[0]-shake[0])/cs - (cameraX - s.pos[0]),
+				(sys.cam.GroundLevel()+(sys.cam.Offset[1]-shake[1]))/cs -
 					(cameraY/cs - s.pos[1])}
 		}
 
@@ -1039,26 +1078,17 @@ func (dl DrawList) draw(cameraX, cameraY, cameraScl float32) {
 
 type ShadowSprite struct {
 	*SprData
-	shadowColor       int32
-	shadowAlpha       int32
-	shadowIntensity   int32
-	shadowOffset      [2]float32
-	shadowWindow      [4]float32
-	shadowXshear      float32
-	shadowYscale      float32
-	shadowRot         Rotation
-	shadowProjection  int32
-	shadowfLength     float32
-	reflectColor      int32
-	reflectIntensity  int32
-	reflectOffset     [2]float32
-	reflectWindow     [4]float32
-	reflectXshear     float32
-	reflectYscale     float32
-	reflectRot        Rotation
-	reflectProjection int32
-	reflectfLength    float32
-	fadeOffset        float32
+	shadowColor      int32
+	shadowAlpha      int32
+	shadowIntensity  int32
+	shadowOffset     [2]float32
+	shadowWindow     [4]float32
+	shadowXshear     float32
+	shadowYscale     float32
+	shadowRot        Rotation
+	shadowProjection int32
+	shadowfLength    float32
+	fadeOffset       float32
 }
 
 type ShadowList []*ShadowSprite
@@ -1069,26 +1099,48 @@ func (sl *ShadowList) add(ss *ShadowSprite) {
 		return
 	}
 
-	i, start := 0, 0
-	for l := len(*sl); l > 0; {
-		i = start + l>>1
-		if ss.priority <= (*sl)[i].priority {
-			l = i - start
-		} else if i == start {
-			i++
-			l = 0
-		} else {
-			l -= i - start
-			start = i
+	/*
+		i, start := 0, 0
+		for l := len(*sl); l > 0; {
+			i = start + l>>1
+			if ss.priority <= (*sl)[i].priority {
+				l = i - start
+			} else if i == start {
+				i++
+				l = 0
+			} else {
+				l -= i - start
+				start = i
+			}
 		}
-	}
-	*sl = append(*sl, nil)
-	copy((*sl)[i+1:], (*sl)[i:])
-	(*sl)[i] = ss
+		*sl = append(*sl, nil)
+		copy((*sl)[i+1:], (*sl)[i:])
+		(*sl)[i] = ss
+	*/
+
+	// Just append. We will sort everything later in one go
+	*sl = append(*sl, ss)
 }
 
 func (sl ShadowList) draw(x, y, scl float32) {
-	for _, s := range sl {
+	if len(sl) == 0 {
+		return
+	}
+
+	// Sort by descending sprpriority
+	sort.SliceStable(sl, func(i, j int) bool {
+		if sl[i].priority != sl[j].priority {
+			return sl[i].priority > sl[j].priority
+		}
+		return false
+	})
+
+	// Common variables
+	shake := sys.envShake.getOffset()
+
+	// Draw the entire list in reverse
+	for i := len(sl) - 1; i >= 0; i-- {
+		s := sl[i]
 
 		// Skip blank shadows
 		if s == nil || s.anim == nil || s.anim.isBlank() {
@@ -1197,7 +1249,7 @@ func (sl ShadowList) draw(x, y, scl float32) {
 		}
 
 		drawwindow := &sys.scrrect
-		es := sys.envShake.getOffset()
+
 		// TODO: If the char has an active window sctrl, shadows should also be affected, in addition to the stage window
 		if sys.stage.sdw.window != [4]float32{0, 0, 0, 0} || s.shadowWindow != [4]float32{0, 0, 0, 0} {
 			var w [4]float32
@@ -1221,8 +1273,8 @@ func (sl ShadowList) draw(x, y, scl float32) {
 				w[i] *= sys.stage.localscl
 			}
 
-			window[0] = int32(((sys.cam.Offset[0] - es[0]) - (x * scl) + w[0]*scl + float32(sys.gameWidth)/2) * sys.widthScale)
-			window[1] = int32((sys.cam.GroundLevel() + (sys.cam.Offset[1] - es[1]) - y + w[1]*SignF(yscale)*scl) * sys.heightScale)
+			window[0] = int32(((sys.cam.Offset[0] - shake[0]) - (x * scl) + w[0]*scl + float32(sys.gameWidth)/2) * sys.widthScale)
+			window[1] = int32((sys.cam.GroundLevel() + (sys.cam.Offset[1] - shake[1]) - y + w[1]*SignF(yscale)*scl) * sys.heightScale)
 			window[2] = int32(scl * (w[2] - w[0]) * sys.widthScale)
 			window[3] = int32(scl * (w[3] - w[1]) * sys.heightScale * SignF(yscale))
 
@@ -1230,16 +1282,63 @@ func (sl ShadowList) draw(x, y, scl float32) {
 		}
 
 		s.anim.ShadowDraw(drawwindow,
-			(sys.cam.Offset[0]-es[0])-((x-s.pos[0]-offsetX)*scl),
-			sys.cam.GroundLevel()+(sys.cam.Offset[1]-es[1])-y-(s.pos[1]*yscale-offsetY)*scl,
+			(sys.cam.Offset[0]-shake[0])-((x-s.pos[0]-offsetX)*scl),
+			sys.cam.GroundLevel()+(sys.cam.Offset[1]-shake[1])-y-(s.pos[1]*yscale-offsetY)*scl,
 			scl*s.scl[0], scl*-s.scl[1],
 			yscale, xshear, rot,
 			s.fx, s.oldVer, uint32(color), intensity, s.facing, s.airOffsetFix, projection, fLength)
 	}
 }
 
-func (sl ShadowList) drawReflection(x, y, scl float32) {
-	for _, s := range sl {
+type ReflectionSprite struct {
+	*SprData
+	reflectColor      int32
+	reflectIntensity  int32
+	reflectOffset     [2]float32
+	reflectWindow     [4]float32
+	reflectXshear     float32
+	reflectYscale     float32
+	reflectRot        Rotation
+	reflectProjection int32
+	reflectfLength    float32
+	fadeOffset        float32
+}
+
+type ReflectionList []*ReflectionSprite
+
+func (rl *ReflectionList) add(rs *ReflectionSprite) {
+	if sys.frameSkip || rs.SprData == nil || rs.SprData.isBlank() {
+		return
+	}
+
+	// Stage without reflections
+	// TODO: Maybe ModifyReflection should be able to bypass this
+	if sys.stage.reflection.intensity == 0 {
+		return
+	}
+
+	*rl = append(*rl, rs)
+}
+
+func (rl ReflectionList) draw(x, y, scl float32) {
+	if len(rl) == 0 {
+		return
+	}
+
+	// Sort by descending sprpriority
+	sort.SliceStable(rl, func(i, j int) bool {
+		if rl[i].priority != rl[j].priority {
+			return rl[i].priority > rl[j].priority
+		}
+		return false
+	})
+
+	// Common variables
+	shake := sys.envShake.getOffset()
+
+	// Draw the entire list in reverse
+	for i := len(rl) - 1; i >= 0; i-- {
+		s := rl[i]
 
 		// Skip blank reflections
 		if s == nil || s.anim == nil || s.anim.isBlank() {
@@ -1351,7 +1450,7 @@ func (sl ShadowList) drawReflection(x, y, scl float32) {
 		}
 
 		drawwindow := &sys.scrrect
-		es := sys.envShake.getOffset()
+
 		// TODO: If the char has an active window sctrl, reflections should also be affected, in addition to the stage window
 		if sys.stage.reflection.window != [4]float32{0, 0, 0, 0} || s.reflectWindow != [4]float32{0, 0, 0, 0} {
 			var w [4]float32
@@ -1375,8 +1474,8 @@ func (sl ShadowList) drawReflection(x, y, scl float32) {
 				w[i] *= sys.stage.localscl
 			}
 
-			window[0] = int32(((sys.cam.Offset[0] - es[0]) - (x * scl) + w[0]*scl + float32(sys.gameWidth)/2) * sys.widthScale)
-			window[1] = int32((sys.cam.GroundLevel() + (sys.cam.Offset[1] - es[1]) - y + w[1]*SignF(yscale)*scl) * sys.heightScale)
+			window[0] = int32(((sys.cam.Offset[0] - shake[0]) - (x * scl) + w[0]*scl + float32(sys.gameWidth)/2) * sys.widthScale)
+			window[1] = int32((sys.cam.GroundLevel() + (sys.cam.Offset[1] - shake[1]) - y + w[1]*SignF(yscale)*scl) * sys.heightScale)
 			window[2] = int32(scl * (w[2] - w[0]) * sys.widthScale)
 			window[3] = int32(scl * (w[3] - w[1]) * sys.heightScale * SignF(yscale))
 
@@ -1384,8 +1483,8 @@ func (sl ShadowList) drawReflection(x, y, scl float32) {
 		}
 
 		s.anim.Draw(drawwindow,
-			(sys.cam.Offset[0]-es[0])/scl-(x-s.pos[0]-offsetX),
-			(sys.cam.GroundLevel()+sys.cam.Offset[1]-es[1])/scl-y/scl-(s.pos[1]*yscale-offsetY),
+			(sys.cam.Offset[0]-shake[0])/scl-(x-s.pos[0]-offsetX),
+			(sys.cam.GroundLevel()+sys.cam.Offset[1]-shake[1])/scl-y/scl-(s.pos[1]*yscale-offsetY),
 			scl, scl, s.scl[0], s.scl[0],
 			-s.scl[1]*yscale, xshear, rot, float32(sys.gameWidth)/2,
 			s.fx, s.oldVer, s.facing, s.airOffsetFix, projection, fLength, color, true)

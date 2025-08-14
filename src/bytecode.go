@@ -394,6 +394,8 @@ const (
 	OC_const_displayname
 	OC_const_stagevar_info_author
 	OC_const_stagevar_info_displayname
+	OC_const_stagevar_info_ikemenversion
+	OC_const_stagevar_info_mugenversion
 	OC_const_stagevar_info_name
 	OC_const_stagevar_camera_boundleft
 	OC_const_stagevar_camera_boundright
@@ -593,6 +595,7 @@ const (
 	OC_ex_animelemvar_numclsn2
 	OC_ex_animlength
 	OC_ex_animplayerno
+	OC_ex_spriteplayerno
 	OC_ex_attack
 	OC_ex_clsnoverlap
 	OC_ex_combocount
@@ -795,6 +798,9 @@ const (
 	OC_ex2_explodvar_angle_y
 	OC_ex2_explodvar_anim
 	OC_ex2_explodvar_animelem
+	OC_ex2_explodvar_animelemtime
+	OC_ex2_explodvar_animplayerno
+	OC_ex2_explodvar_spriteplayerno
 	OC_ex2_explodvar_bindtime
 	OC_ex2_explodvar_drawpal_group
 	OC_ex2_explodvar_drawpal_index
@@ -2373,8 +2379,8 @@ func (be BytecodeExp) run_const(c *Char, i *int, oc *Char) {
 			p8.gi().nameLow == sys.stringPool[sys.workingState.playerNo].List[*(*int32)(unsafe.Pointer(&be[*i]))])
 		*i += 4
 	// StageVar
-	case OC_const_stagevar_info_name:
-		sys.bcStack.PushB(sys.stage.nameLow ==
+	case OC_const_stagevar_info_author:
+		sys.bcStack.PushB(sys.stage.authorLow ==
 			sys.stringPool[sys.workingState.playerNo].List[*(*int32)(
 				unsafe.Pointer(&be[*i]))])
 		*i += 4
@@ -2383,8 +2389,12 @@ func (be BytecodeExp) run_const(c *Char, i *int, oc *Char) {
 			sys.stringPool[sys.workingState.playerNo].List[*(*int32)(
 				unsafe.Pointer(&be[*i]))])
 		*i += 4
-	case OC_const_stagevar_info_author:
-		sys.bcStack.PushB(sys.stage.authorLow ==
+	case OC_const_stagevar_info_ikemenversion:
+		sys.bcStack.PushF(sys.stage.ikemenverF)
+	case OC_const_stagevar_info_mugenversion:
+		sys.bcStack.PushF(sys.stage.mugenverF)
+	case OC_const_stagevar_info_name:
+		sys.bcStack.PushB(sys.stage.nameLow ==
 			sys.stringPool[sys.workingState.playerNo].List[*(*int32)(
 				unsafe.Pointer(&be[*i]))])
 		*i += 4
@@ -2833,6 +2843,8 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 		sys.bcStack.PushI(c.anim.totaltime)
 	case OC_ex_animplayerno:
 		sys.bcStack.PushI(int32(c.animPN) + 1)
+	case OC_ex_spriteplayerno:
+		sys.bcStack.PushI(int32(c.spritePN) + 1)
 	case OC_ex_attack:
 		sys.bcStack.PushF(c.attackMul[0] * 100)
 	case OC_ex_clsnoverlap:
@@ -2921,7 +2933,7 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 	case OC_ex_helperindexexist:
 		*sys.bcStack.Top() = c.helperByIndexExist(*sys.bcStack.Top())
 	case OC_ex_hitoverridden:
-		sys.bcStack.PushB(c.hoIdx >= 0)
+		sys.bcStack.PushB(c.hoverIdx >= 0)
 	case OC_ex_ikemenversion:
 		sys.bcStack.PushF(c.gi().ikemenverF)
 	case OC_ex_incustomanim:
@@ -2984,7 +2996,8 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 	case OC_ex_ishost:
 		sys.bcStack.PushB(c.isHost())
 	case OC_ex_jugglepoints:
-		*sys.bcStack.Top() = c.jugglePoints(*sys.bcStack.Top())
+		v1 := sys.bcStack.Pop()
+		sys.bcStack.PushI(c.jugglePoints(v1.ToI()))
 	case OC_ex_localcoord_x:
 		sys.bcStack.PushF(sys.cgi[c.playerNo].localcoord[0])
 	case OC_ex_localcoord_y:
@@ -3040,7 +3053,9 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 	case OC_ex_movecountered:
 		sys.bcStack.PushI(c.moveCountered())
 	case OC_ex_mugenversion:
-		sys.bcStack.PushF(c.mugenVersionF())
+		sys.bcStack.PushF(c.gi().mugenverF)
+		// Here the version is always checked directly in the character instead of the working state
+		// This is because in a custom state this trigger will be used to know the enemy's version rather than our own
 	case OC_ex_pausetime:
 		sys.bcStack.PushI(c.pauseTimeTrigger())
 	case OC_ex_physics:
@@ -3429,6 +3444,12 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 		fallthrough
 	case OC_ex2_explodvar_animelem:
 		fallthrough
+	case OC_ex2_explodvar_animelemtime:
+		fallthrough
+	case OC_ex2_explodvar_animplayerno:
+		fallthrough
+	case OC_ex2_explodvar_spriteplayerno:
+		fallthrough
 	case OC_ex2_explodvar_drawpal_group:
 		fallthrough
 	case OC_ex2_explodvar_drawpal_index:
@@ -3666,9 +3687,9 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 	case OC_ex2_hitdefvar_guard_dist_depth_top:
 		sys.bcStack.PushF(c.hitdef.guard_dist_z[0] * (c.localscl / oc.localscl))
 	case OC_ex2_hitdefvar_guard_pausetime:
-		sys.bcStack.PushI(c.hitdef.guard_pausetime)
+		sys.bcStack.PushI(c.hitdef.guard_pausetime[0])
 	case OC_ex2_hitdefvar_guard_shaketime:
-		sys.bcStack.PushI(c.hitdef.guard_shaketime)
+		sys.bcStack.PushI(c.hitdef.guard_pausetime[1])
 	case OC_ex2_hitdefvar_guard_sparkno:
 		sys.bcStack.PushI(c.hitdef.guard_sparkno)
 	case OC_ex2_hitdefvar_guarddamage:
@@ -3702,11 +3723,11 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 	case OC_ex2_hitdefvar_p2stateno:
 		sys.bcStack.PushI(c.hitdef.p2stateno)
 	case OC_ex2_hitdefvar_pausetime:
-		sys.bcStack.PushI(c.hitdef.pausetime)
+		sys.bcStack.PushI(c.hitdef.pausetime[0])
 	case OC_ex2_hitdefvar_priority:
 		sys.bcStack.PushI(c.hitdef.priority)
 	case OC_ex2_hitdefvar_shaketime:
-		sys.bcStack.PushI(c.hitdef.shaketime)
+		sys.bcStack.PushI(c.hitdef.pausetime[1])
 	case OC_ex2_hitdefvar_sparkno:
 		sys.bcStack.PushI(c.hitdef.sparkno)
 	case OC_ex2_hitdefvar_sparkx:
@@ -4134,8 +4155,7 @@ func (scb *StateControllerBase) add(paramID byte, exp []BytecodeExp) {
 	}
 }
 
-func (scb StateControllerBase) run(c *Char,
-	f func(byte, []BytecodeExp) bool) {
+func (scb StateControllerBase) run(c *Char, f func(byte, []BytecodeExp) bool) {
 	for i := 0; i < len(scb); {
 		id := scb[i]
 		i++
@@ -4156,6 +4176,24 @@ func (scb StateControllerBase) run(c *Char,
 			break
 		}
 	}
+}
+
+func getRedirectedChar(c *Char, sc StateControllerBase, redirectID byte, scname string) *Char {
+	crun := c
+	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
+		if paramID == redirectID {
+			input := exp[0].evalI(c)
+			if r := sys.playerID(input); r != nil {
+				crun = r
+			} else {
+				crun = nil
+				sys.appendToConsole(c.warn() + fmt.Sprintf("invalid RedirectID for %s: %v", scname, input))
+			}
+			return false // Found, stop scanning
+		}
+		return true // Keep scanning
+	})
+	return crun
 }
 
 type stateDef StateControllerBase
@@ -4210,7 +4248,7 @@ func (sc stateDef) Run(c *Char) {
 				}
 			}
 		case stateDef_anim:
-			c.changeAnimEx(exp[1].evalI(c), c.playerNo, string(*(*[]byte)(unsafe.Pointer(&exp[0]))), false)
+			c.changeAnimEx(exp[1].evalI(c), c.playerNo, -1, string(*(*[]byte)(unsafe.Pointer(&exp[0]))), false)
 		case stateDef_ctrl:
 			c.setCtrl(exp[0].evalB(c))
 		case stateDef_poweradd:
@@ -4235,7 +4273,11 @@ const (
 )
 
 func (sc hitBy) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitBy_redirectid, "HitBy")
+	if crun == nil {
+		return false
+	}
+
 	slot := int(-1)
 	attr := int32(-1)
 	time := int32(1)
@@ -4251,6 +4293,7 @@ func (sc hitBy) Run(c *Char, _ []int32) bool {
 		crun.hitby[slot].playerid = pid
 		crun.hitby[slot].stack = stk
 	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitBy_time:
@@ -4276,25 +4319,25 @@ func (sc hitBy) Run(c *Char, _ []int32) bool {
 			pid = exp[0].evalI(c)
 		case hitBy_stack:
 			stk = exp[0].evalB(c)
-		case hitBy_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
+
 	if !old && slot >= 0 && slot <= 7 {
 		set(slot, attr, time, pno, pid, stk)
 	}
+
 	return false
 }
 
 type notHitBy hitBy
 
 func (sc notHitBy) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitBy_redirectid, "NotHitBy")
+	if crun == nil {
+		return false
+	}
+
 	slot := int(-1)
 	attr := int32(-1)
 	time := int32(1)
@@ -4310,6 +4353,7 @@ func (sc notHitBy) Run(c *Char, _ []int32) bool {
 		crun.hitby[slot].playerid = pid
 		crun.hitby[slot].stack = stk
 	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitBy_time:
@@ -4335,18 +4379,14 @@ func (sc notHitBy) Run(c *Char, _ []int32) bool {
 			pid = exp[0].evalI(c)
 		case hitBy_stack:
 			stk = exp[0].evalB(c)
-		case hitBy_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
+
 	if !old && slot >= 0 && slot <= 7 {
 		set(slot, attr, time, pno, pid, stk)
 	}
+
 	return false
 }
 
@@ -4361,7 +4401,11 @@ const (
 )
 
 func (sc assertSpecial) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), assertSpecial_redirectid, "AssertSpecial")
+	if crun == nil {
+		return false
+	}
+
 	enable := true
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -4396,12 +4440,6 @@ func (sc assertSpecial) Run(c *Char, _ []int32) bool {
 					crun.unsetASF(AssertSpecialFlag(ASF_noko))
 				}
 			}
-		case assertSpecial_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -4420,7 +4458,6 @@ const (
 	playSnd_volumescale
 	playSnd_freqmul
 	playSnd_loop
-	playSnd_redirectid
 	playSnd_priority
 	playSnd_loopstart
 	playSnd_loopend
@@ -4428,19 +4465,26 @@ const (
 	playSnd_loopcount
 	playSnd_stopongethit
 	playSnd_stoponchangestate
+	playSnd_redirectid
 )
 
 func (sc playSnd) Run(c *Char, _ []int32) bool {
 	if sys.noSoundFlg {
 		return false
 	}
-	crun := c
+
+	crun := getRedirectedChar(c, StateControllerBase(sc), playSnd_redirectid, "PlaySnd")
+	if crun == nil {
+		return false
+	}
+
+	x := &crun.pos[0]
+	ls := crun.localscl
 	f, lw, lp, stopgh, stopcs := "", false, false, false, false
 	var g, n, ch, vo, pri, lc int32 = -1, 0, -1, 100, 0, 0
 	var loopstart, loopend, startposition = 0, 0, 0
 	var p, fr float32 = 0, 1
-	x := &c.pos[0]
-	ls := c.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case playSnd_value:
@@ -4484,14 +4528,6 @@ func (sc playSnd) Run(c *Char, _ []int32) bool {
 			stopgh = exp[0].evalB(c)
 		case playSnd_stoponchangestate:
 			stopcs = exp[0].evalB(c)
-		case playSnd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				x = &crun.pos[0]
-				ls = crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -4521,10 +4557,15 @@ const (
 )
 
 func (sc changeState) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), changeState_redirectid, "ChangeState")
+	if crun == nil {
+		return false
+	}
+
+	stop := (crun.id == c.id)
 	var v, a, ctrl int32 = -1, -1, -1
 	ffx := ""
-	stop := true
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case changeState_value:
@@ -4534,13 +4575,6 @@ func (sc changeState) Run(c *Char, _ []int32) bool {
 		case changeState_anim:
 			a = exp[1].evalI(c)
 			ffx = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
-		case changeState_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				stop = false
-				crun = rid
-			} else {
-				return false
-			}
 		case changeState_continue:
 			stop = !exp[0].evalB(c)
 		}
@@ -4553,10 +4587,14 @@ func (sc changeState) Run(c *Char, _ []int32) bool {
 type selfState changeState
 
 func (sc selfState) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), changeState_redirectid, "SelfState")
+	if crun == nil {
+		return false
+	}
+
+	stop := (crun.id == c.id)
 	var v, a, r, ctrl int32 = -1, -1, -1, -1
 	ffx := ""
-	stop := true
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case changeState_value:
@@ -4569,13 +4607,6 @@ func (sc selfState) Run(c *Char, _ []int32) bool {
 		case changeState_readplayerid:
 			if rpid := sys.playerID(exp[0].evalI(c)); rpid != nil {
 				r = int32(rpid.playerNo)
-			} else {
-				return false
-			}
-		case changeState_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				stop = false
-				crun = rid
 			} else {
 				return false
 			}
@@ -4602,7 +4633,11 @@ const (
 )
 
 func (sc tagIn) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), tagIn_redirectid, "TagIn")
+	if crun == nil {
+		return false
+	}
+
 	var tagSCF int32 = -1
 	var partnerNo int32 = -1
 	var partnerStateNo int32 = -1
@@ -4649,12 +4684,6 @@ func (sc tagIn) Run(c *Char, _ []int32) bool {
 					sys.teamLeader[crun.playerNo&1] = ld
 				}
 			}
-		case tagIn_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -4694,7 +4723,11 @@ const (
 )
 
 func (sc tagOut) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), tagOut_redirectid, "TagOut")
+	if crun == nil {
+		return false
+	}
+
 	var tagSCF int32 = -1
 	var partnerNo int32 = -1
 	var partnerStateNo int32 = -1
@@ -4722,12 +4755,6 @@ func (sc tagOut) Run(c *Char, _ []int32) bool {
 		case tagOut_partnerstateno:
 			if psn := exp[0].evalI(c); psn >= 0 {
 				partnerStateNo = psn
-			} else {
-				return false
-			}
-		case tagOut_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
 			} else {
 				return false
 			}
@@ -4762,9 +4789,13 @@ const (
 )
 
 func (sc destroySelf) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), destroySelf_redirectid, "DestroySelf")
+	if crun == nil {
+		return false
+	}
+
+	self := (crun.id == c.id)
 	rec, rem, rtx := false, false, false
-	self := true
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case destroySelf_recursive:
@@ -4773,13 +4804,6 @@ func (sc destroySelf) Run(c *Char, _ []int32) bool {
 			rem = exp[0].evalB(c)
 		case destroySelf_removetexts:
 			rtx = exp[0].evalB(c)
-		case destroySelf_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				self = rid.id == c.id
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -4790,39 +4814,63 @@ type changeAnim StateControllerBase
 
 const (
 	changeAnim_elem byte = iota
+	changeAnim_elemtime
 	changeAnim_value
+	changeAnim_animplayerno
+	changeAnim_spriteplayerno
 	changeAnim_readplayerid
 	changeAnim_redirectid
 )
 
 func (sc changeAnim) Run(c *Char, _ []int32) bool {
-	crun := c
-	var elem int32
+	crun := getRedirectedChar(c, StateControllerBase(sc), changeAnim_redirectid, "ChangeAnim")
+	if crun == nil {
+		return false
+	}
+
+	var elem, elemtime int32
 	var rpid int = -1
+	animPN := -1
+	spritePN := -1
 	setelem := false
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case changeAnim_elem:
 			elem = exp[0].evalI(c)
 			setelem = true
+		case changeAnim_elemtime:
+			elemtime = exp[0].evalI(c)
+			setelem = true
 		case changeAnim_value:
-			pn := crun.playerNo // Default to own player number
-			if rpid != -1 {
-				pn = rpid
+			apn := crun.playerNo // Default to own player number
+			spn := crun.playerNo
+			if animPN != -1 {
+				apn = animPN
 			}
-			crun.changeAnim(exp[1].evalI(c), pn, string(*(*[]byte)(unsafe.Pointer(&exp[0]))))
+			if spritePN != -1 {
+				spn = spritePN
+			}
+			if rpid != -1 {
+				apn, spn = rpid, rpid
+			}
+			ffx := string(*(*[]byte)(unsafe.Pointer(&exp[0])))
+			crun.changeAnim(exp[1].evalI(c), apn, spn, ffx)
 			if setelem {
-				crun.setAnimElem(elem)
+				crun.setAnimElem(elem, elemtime)
+			}
+		case changeAnim_animplayerno:
+			pn := int(exp[0].evalI(c)) - 1
+			if crun.validatePlayerNo(pn, "animPlayerNo", "changeAnim") {
+				animPN = pn
+			}
+		case changeAnim_spriteplayerno:
+			pn := int(exp[0].evalI(c)) - 1
+			if crun.validatePlayerNo(pn, "spritePlayerNo", "changeAnim") {
+				spritePN = pn
 			}
 		case changeAnim_readplayerid:
 			if read := sys.playerID(exp[0].evalI(c)); read != nil {
 				rpid = read.playerNo
-			} else {
-				return false
-			}
-		case changeAnim_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
 			} else {
 				return false
 			}
@@ -4835,14 +4883,21 @@ func (sc changeAnim) Run(c *Char, _ []int32) bool {
 type changeAnim2 changeAnim
 
 func (sc changeAnim2) Run(c *Char, _ []int32) bool {
-	crun := c
-	var elem int32
+	crun := getRedirectedChar(c, StateControllerBase(sc), changeAnim_redirectid, "ChangeAnim2")
+	if crun == nil {
+		return false
+	}
+
+	var elem, elemtime int32
 	var rpid int = -1
 	setelem := false
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case changeAnim_elem:
 			elem = exp[0].evalI(c)
+			setelem = true
+		case changeAnim_elemtime:
+			elemtime = exp[0].evalI(c)
 			setelem = true
 		case changeAnim_value:
 			pn := crun.ss.sb.playerNo // Default to state owner player number
@@ -4851,17 +4906,11 @@ func (sc changeAnim2) Run(c *Char, _ []int32) bool {
 			}
 			crun.changeAnim2(exp[1].evalI(c), pn, string(*(*[]byte)(unsafe.Pointer(&exp[0]))))
 			if setelem {
-				crun.setAnimElem(elem)
+				crun.setAnimElem(elem, elemtime)
 			}
 		case changeAnim_readplayerid:
 			if read := sys.playerID(exp[0].evalI(c)); read != nil {
 				rpid = read.playerNo
-			} else {
-				return false
-			}
-		case changeAnim_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
 			} else {
 				return false
 			}
@@ -4903,7 +4952,6 @@ const (
 	helper_facing
 	helper_pausemovetime
 	helper_supermovetime
-	helper_redirectid
 	helper_remappal
 	helper_extendsmap
 	helper_inheritjuggle
@@ -4913,34 +4961,28 @@ const (
 	helper_preserve
 	helper_standby
 	helper_ownclsnscale
+	helper_redirectid
 )
 
 func (sc helper) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
-	var h *Char
+	crun := getRedirectedChar(c, StateControllerBase(sc), helper_redirectid, "Helper")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	pt := PT_P1
 	var f, st int32 = 1, 0
 	var extmap bool
 	var x, y, z float32 = 0, 0, 0
 	rp := [...]int32{-1, 0}
+
+	h := crun.newHelper()
+	if h == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		if h == nil {
-			if paramID == helper_redirectid {
-				if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-					crun = rid
-					redirscale = c.localscl / crun.localscl
-					h = crun.newHelper()
-				} else {
-					return false
-				}
-			} else {
-				h = c.newHelper()
-			}
-		}
-		if h == nil {
-			return false
-		}
 		switch paramID {
 		case helper_helpertype:
 			ht := exp[0].evalI(c)
@@ -5059,9 +5101,7 @@ func (sc helper) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
-	if h == nil {
-		return false
-	}
+
 	if crun.minus == -2 || crun.minus == -4 {
 		h.localscl = (320 / crun.localcoord)
 		h.localcoord = crun.localcoord
@@ -5081,17 +5121,15 @@ const (
 )
 
 func (sc ctrlSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), ctrlSet_redirectid, "CtrlSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case ctrlSet_value:
 			crun.setCtrl(exp[0].evalB(c))
-		case ctrlSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -5108,34 +5146,32 @@ const (
 )
 
 func (sc posSet) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), posSet_redirectid, "PosSet")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case posSet_x:
 			x := sys.cam.Pos[0]/crun.localscl + exp[0].evalF(c)*redirscale
-			crun.setX(x)
+			crun.setAllPosX(x)
 			if crun.bindToId > 0 && !math.IsNaN(float64(crun.bindPos[0])) && sys.playerID(crun.bindToId) != nil {
 				crun.bindPosAdd[0] = x
 			}
 		case posSet_y:
 			y := exp[0].evalF(c)*redirscale + crun.groundLevel + crun.platformPosY
-			crun.setY(y)
+			crun.setAllPosY(y)
 			if crun.bindToId > 0 && !math.IsNaN(float64(crun.bindPos[1])) && sys.playerID(crun.bindToId) != nil {
 				crun.bindPosAdd[1] = y
 			}
 		case posSet_z:
 			z := exp[0].evalF(c) * redirscale
-			crun.setZ(z)
+			crun.setAllPosZ(z)
 			if crun.bindToId > 0 && !math.IsNaN(float64(crun.bindPos[2])) && sys.playerID(crun.bindToId) != nil {
 				crun.bindPosAdd[2] = z
-			}
-		case posSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
 			}
 		}
 		return true
@@ -5146,8 +5182,13 @@ func (sc posSet) Run(c *Char, _ []int32) bool {
 type posAdd posSet
 
 func (sc posAdd) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), posSet_redirectid, "PosAdd")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case posSet_x:
@@ -5168,13 +5209,6 @@ func (sc posAdd) Run(c *Char, _ []int32) bool {
 			if crun.bindToId > 0 && !math.IsNaN(float64(crun.bindPos[0])) && sys.playerID(crun.bindToId) != nil {
 				crun.bindPosAdd[0] = z
 			}
-		case posSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -5184,8 +5218,13 @@ func (sc posAdd) Run(c *Char, _ []int32) bool {
 type velSet posSet
 
 func (sc velSet) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), posSet_redirectid, "VelSet")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case posSet_x:
@@ -5194,13 +5233,6 @@ func (sc velSet) Run(c *Char, _ []int32) bool {
 			crun.vel[1] = exp[0].evalF(c) * redirscale
 		case posSet_z:
 			crun.vel[2] = exp[0].evalF(c) * redirscale
-		case posSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -5210,8 +5242,13 @@ func (sc velSet) Run(c *Char, _ []int32) bool {
 type velAdd posSet
 
 func (sc velAdd) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), posSet_redirectid, "VelAdd")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case posSet_x:
@@ -5220,13 +5257,6 @@ func (sc velAdd) Run(c *Char, _ []int32) bool {
 			crun.vel[1] += exp[0].evalF(c) * redirscale
 		case posSet_z:
 			crun.vel[2] += exp[0].evalF(c) * redirscale
-		case posSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -5236,7 +5266,11 @@ func (sc velAdd) Run(c *Char, _ []int32) bool {
 type velMul posSet
 
 func (sc velMul) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), posSet_redirectid, "VelMul")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case posSet_x:
@@ -5245,138 +5279,6 @@ func (sc velMul) Run(c *Char, _ []int32) bool {
 			crun.vel[1] *= exp[0].evalF(c)
 		case posSet_z:
 			crun.vel[2] *= exp[0].evalF(c)
-		case posSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
-		}
-		return true
-	})
-	return false
-}
-
-type modifyShadow StateControllerBase
-
-const (
-	modifyShadow_color byte = iota
-	modifyShadow_intensity
-	modifyShadow_offset
-	modifyShadow_window
-	modifyShadow_xshear
-	modifyShadow_yscale
-	modifyShadow_angle
-	modifyShadow_xangle
-	modifyShadow_yangle
-	modifyShadow_focallength
-	modifyShadow_projection
-	modifyShadow_redirectid
-)
-
-func (sc modifyShadow) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
-	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		switch paramID {
-		case modifyShadow_color:
-			r := Clamp(exp[0].evalI(c), 0, 255)
-			g := Clamp(exp[1].evalI(c), 0, 255)
-			b := Clamp(exp[2].evalI(c), 0, 255)
-			crun.shadowColor = [3]int32{r, g, b}
-		case modifyShadow_intensity:
-			crun.shadowIntensity = Clamp(exp[0].evalI(c), 0, 255)
-		case modifyShadow_offset:
-			crun.shadowOffset[0] = exp[0].evalF(c) * redirscale
-			if len(exp) > 1 {
-				crun.shadowOffset[1] = exp[1].evalF(c) * redirscale
-			}
-		case modifyShadow_window:
-			crun.shadowWindow = [4]float32{exp[0].evalF(c), exp[1].evalF(c), exp[2].evalF(c), exp[3].evalF(c)}
-		case modifyShadow_xshear:
-			crun.shadowXshear = exp[0].evalF(c)
-		case modifyShadow_yscale:
-			crun.shadowYscale = exp[0].evalF(c)
-		case modifyShadow_angle:
-			crun.shadowRot.angle = exp[0].evalF(c)
-		case modifyShadow_xangle:
-			crun.shadowRot.xangle = exp[0].evalF(c)
-		case modifyShadow_yangle:
-			crun.shadowRot.yangle = exp[0].evalF(c)
-		case modifyShadow_focallength:
-			crun.shadowfLength = exp[0].evalF(c)
-		case modifyShadow_projection:
-			crun.shadowProjection = Projection(exp[0].evalI(c))
-		case modifyShadow_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
-		}
-		return true
-	})
-	return false
-}
-
-type modifyReflection StateControllerBase
-
-const (
-	modifyReflection_color byte = iota
-	modifyReflection_intensity
-	modifyReflection_offset
-	modifyReflection_window
-	modifyReflection_xshear
-	modifyReflection_yscale
-	modifyReflection_angle
-	modifyReflection_xangle
-	modifyReflection_yangle
-	modifyReflection_focallength
-	modifyReflection_projection
-	modifyReflection_redirectid
-)
-
-func (sc modifyReflection) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
-	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		switch paramID {
-		case modifyReflection_color:
-			r := Clamp(exp[0].evalI(c), 0, 255)
-			g := Clamp(exp[1].evalI(c), 0, 255)
-			b := Clamp(exp[2].evalI(c), 0, 255)
-			crun.reflectColor = [3]int32{r, g, b}
-		case modifyReflection_intensity:
-			crun.reflectIntensity = Clamp(exp[0].evalI(c), 0, 255)
-		case modifyReflection_offset:
-			crun.reflectOffset[0] = exp[0].evalF(c) * redirscale
-			if len(exp) > 1 {
-				crun.reflectOffset[1] = exp[1].evalF(c) * redirscale
-			}
-		case modifyReflection_window:
-			crun.reflectWindow = [4]float32{exp[0].evalF(c), exp[1].evalF(c), exp[2].evalF(c), exp[3].evalF(c)}
-		case modifyReflection_xshear:
-			crun.reflectXshear = exp[0].evalF(c)
-		case modifyReflection_yscale:
-			crun.reflectYscale = exp[0].evalF(c)
-		case modifyReflection_angle:
-			crun.reflectRot.angle = exp[0].evalF(c)
-		case modifyReflection_xangle:
-			crun.reflectRot.xangle = exp[0].evalF(c)
-		case modifyReflection_yangle:
-			crun.reflectRot.yangle = exp[0].evalF(c)
-		case modifyReflection_focallength:
-			crun.reflectfLength = exp[0].evalF(c)
-		case modifyReflection_projection:
-			crun.reflectProjection = Projection(exp[0].evalI(c))
-		case modifyReflection_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -5476,35 +5378,35 @@ func (sc palFX) runSub(c *Char, pfd *PalFXDef, paramID byte, exp []BytecodeExp) 
 }
 
 func (sc palFX) Run(c *Char, _ []int32) bool {
-	crun := c
-	doOnce := false
-	pf := newPalFX()
+	crun := getRedirectedChar(c, StateControllerBase(sc), palFX_redirectid, "PalFX")
+	if crun == nil {
+		return false
+	}
+
+	if !crun.ownpal {
+		return false
+	}
+
+	pf := crun.palfx
+	if pf == nil {
+		pf = newPalFX()
+	}
+	pf.clear2(true)
+
+	// Mugen 1.1 invertblend fallback
+	if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 &&
+		c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
+		pf.invertblend = -2
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		if paramID == palFX_redirectid {
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
-		}
-		if !doOnce {
-			if !crun.ownpal {
-				return false
-			}
-			pf = crun.palfx
-			if pf == nil {
-				pf = newPalFX()
-			}
-			pf.clear2(true)
-			// Mugen 1.1 behavior if invertblend param is omitted (Only if char mugenversion = 1.1)
-			if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
-				pf.invertblend = -2
-			}
-			doOnce = true
+			return true // Skip runSub
 		}
 		sc.runSub(c, &pf.PalFXDef, paramID, exp)
 		return true
 	})
+
 	return false
 }
 
@@ -5548,6 +5450,7 @@ func (sc bgPalFX) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
+
 	// Apply BGPalFX
 	if bgid < 0 && bgidx < 0 {
 		// Apply to stage itself
@@ -5600,6 +5503,7 @@ const (
 	explod_removeonchangestate
 	explod_trans
 	explod_animelem
+	explod_animelemtime
 	explod_animfreeze
 	explod_angle
 	explod_yangle
@@ -5624,51 +5528,62 @@ const (
 	explod_interpolate_pfx_color
 	explod_interpolate_pfx_hue
 	explod_interpolation
-	explod_redirectid
+	explod_animplayerno
+	explod_spriteplayerno
 	explod_last = iota + palFX_last + 1 - 1
+	explod_redirectid
 )
 
 func (sc explod) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
-	var e *Explod
-	var i int
-	//e, i := crun.newExplod()
+	crun := getRedirectedChar(c, StateControllerBase(sc), explod_redirectid, "Explod")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	rp := [...]int32{-1, 0}
+	animPN := -1
+	spritePN := -1
+	e, i := crun.newExplod()
+	if e == nil {
+		return false
+	}
+	e.id = 0
+
+	// Mugenversion 1.1 chars default postype to "None"
+	if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 {
+		e.postype = PT_None
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		if e == nil {
-			if paramID == explod_redirectid {
-				if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-					crun = rid
-					redirscale = c.localscl / crun.localscl
-					e, i = crun.newExplod()
-					if e == nil {
-						return false
-					}
-					e.id = 0
-				} else {
-					return false
-				}
-			} else {
-				e, i = crun.newExplod()
-				if e == nil {
-					return false
-				}
-				e.id = 0
-			}
-			// Mugenversion 1.1 chars default postype to "None"
-			if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 {
-				e.postype = PT_None
-			}
-		}
 		switch paramID {
 		case explod_anim:
+			apn := crun.playerNo // Default to own player number
+			spn := crun.playerNo
+			if animPN != -1 {
+				apn = animPN
+			}
+			if spritePN != -1 {
+				spn = spritePN
+			}
 			ffx := string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 			if ffx != "" && ffx != "s" {
 				e.ownpal = true
 			}
 			e.animNo = exp[1].evalI(c)
-			e.anim = crun.getAnim(e.animNo, ffx, true)
+			e.animelem = 1
+			e.animelemtime = 0
+			e.setAnim(e.animNo, apn, spn, ffx)
+		case explod_animplayerno:
+			pn := int(exp[0].evalI(c)) - 1
+			if crun.validatePlayerNo(pn, "animPlayerNo", "Explod") {
+				animPN = pn
+			}
+		case explod_spriteplayerno:
+			pn := int(exp[0].evalI(c)) - 1
+			if crun.validatePlayerNo(pn, "spritePlayerNo", "Explod") {
+				spritePN = pn
+			}
 		case explod_ownpal:
 			e.ownpal = exp[0].evalB(c)
 		case explod_remappal:
@@ -5822,11 +5737,13 @@ func (sc explod) Run(c *Char, _ []int32) bool {
 				}
 			}
 		case explod_animelem:
-			animelem := exp[0].evalI(c)
-			e.animelem = animelem
+			e.animelem = exp[0].evalI(c)
 			if e.anim != nil {
 				e.anim.Action() // This being in this place can cause a nil animation crash
 			}
+			e.setAnimElem()
+		case explod_animelemtime:
+			e.animelemtime = exp[0].evalI(c)
 			e.setAnimElem()
 		case explod_animfreeze:
 			e.animfreeze = exp[0].evalB(c)
@@ -5852,6 +5769,8 @@ func (sc explod) Run(c *Char, _ []int32) bool {
 			e.projection = Projection(exp[0].evalI(c))
 		case explod_window:
 			e.window = [4]float32{exp[0].evalF(c) * redirscale, exp[1].evalF(c) * redirscale, exp[2].evalF(c) * redirscale, exp[3].evalF(c) * redirscale}
+		case explod_redirectid:
+			return true // Already handled. Avoid default
 		default:
 			if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
 				e.palfxdef.invertblend = -2
@@ -5863,9 +5782,7 @@ func (sc explod) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
-	if e == nil {
-		return false
-	}
+
 	// In this scenario the explod scale is constant in Mugen
 	//if c.minus == -2 || c.minus == -4 {
 	//	e.localscl = (320 / crun.localcoord)
@@ -5960,15 +5877,20 @@ const (
 )
 
 func (sc modifyExplod) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyexplod_redirectid, "ModifyExplod")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	eid := int32(-1)
 	idx := int32(-1)
 	var expls []*Explod
 	rp := [...]int32{-1, 0}
 	remap := false
 	ptexists := false
-
+	animPN := -1
+	spritePN := -1
 	// Mugen chars can only modify some parameters after defining PosType
 	// Ikemen chars don't have this restriction
 	paramlock := func() bool {
@@ -5989,12 +5911,15 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
-		case explod_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
+		case explod_animplayerno:
+			pn := int(exp[0].evalI(c)) - 1
+			if crun.validatePlayerNo(pn, "animPlayerNo", "modifyExplod") {
+				animPN = pn
+			}
+		case explod_spriteplayerno:
+			pn := int(exp[0].evalI(c)) - 1
+			if crun.validatePlayerNo(pn, "spritePlayerNo", "modifyExplod") {
+				spritePN = pn
 			}
 		case explod_remappal:
 			rp[0] = exp[0].evalI(c)
@@ -6006,6 +5931,8 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 			eid = exp[0].evalI(c)
 		case modifyexplod_index:
 			idx = exp[0].evalI(c)
+		case modifyexplod_redirectid:
+			return true // Already handled. Avoid default
 		default:
 			if len(expls) == 0 {
 				expls = crun.getExplods(eid)
@@ -6028,9 +5955,9 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 							e.relativef = 1
 						}
 						e.offset = [3]float32{0, 0, 0}
-						e.setX(e.offset[0])
-						e.setY(e.offset[1])
-						e.setZ(e.offset[2])
+						e.setAllPosX(e.offset[0])
+						e.setAllPosY(e.offset[1])
+						e.setAllPosZ(e.offset[2])
 						e.relativePos = [3]float32{0, 0, 0}
 						e.velocity = [3]float32{0, 0, 0}
 						e.accel = [3]float32{0, 0, 0}
@@ -6192,9 +6119,9 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 					if (crun.stWgi().ikemenver[0] != 0 || crun.stWgi().ikemenver[1] != 0) && t > 0 {
 						e.bindtime = e.time + t
 					}
-					e.setX(e.pos[0])
-					e.setY(e.pos[1])
-					e.setZ(e.pos[2])
+					e.setAllPosX(e.pos[0])
+					e.setAllPosY(e.pos[1])
+					e.setAllPosZ(e.pos[2])
 				})
 			case explod_removetime:
 				t := exp[0].evalI(c)
@@ -6327,21 +6254,40 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 				})
 			case explod_anim:
 				if c.stWgi().ikemenver[0] != 0 || c.stWgi().ikemenver[1] != 0 { // You could not modify this one in Mugen
+					apn := crun.playerNo // Default to own player number
+					spn := crun.playerNo
+					if animPN != -1 {
+						apn = animPN
+					}
+					if spritePN != -1 {
+						spn = spritePN
+					}
 					animNo := exp[1].evalI(c)
-					anim := crun.getAnim(animNo, string(*(*[]byte)(unsafe.Pointer(&exp[0]))), true)
+					ffx := string(*(*[]byte)(unsafe.Pointer(&exp[0])))
+
 					eachExpl(func(e *Explod) {
-						e.anim = anim
+						e.animelem = 1
+						e.animelemtime = 0
 						e.animNo = animNo
+						e.setAnim(e.animNo, apn, spn, ffx)
 					})
 				}
 			case explod_animelem:
-				animelem := exp[0].evalI(c)
+				v1 := exp[0].evalI(c)
 				eachExpl(func(e *Explod) {
+					e.animelem = v1
+					e.animelemtime = 0
 					e.interpolate_animelem[1] = -1
-					e.animelem = animelem
 					if e.anim != nil {
 						e.anim.Action() // This being in this place can cause a nil animation crash
 					}
+					e.setAnimElem()
+				})
+			case explod_animelemtime:
+				v1 := exp[0].evalI(c)
+				eachExpl(func(e *Explod) {
+					//e.interpolate_animelem[1] = -1 // TODO: Check animelemtime and interpolation interaction
+					e.animelemtime = v1
 					e.setAnimElem()
 				})
 			case explod_animfreeze:
@@ -6443,33 +6389,20 @@ const (
 )
 
 func (sc gameMakeAnim) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
-	var e *Explod
-	var i int
+	crun := getRedirectedChar(c, StateControllerBase(sc), gameMakeAnim_redirectid, "GameMakeAnim")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+	e, i := crun.newExplod()
+	if e == nil {
+		return false
+	}
+	e.id = 0
+	e.layerno, e.sprpriority, e.ownpal = 1, math.MinInt32, true
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		if e == nil {
-			if paramID == gameMakeAnim_redirectid {
-				if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-					crun = rid
-					redirscale = c.localscl / crun.localscl
-					e, i = crun.newExplod()
-					if e == nil {
-						return false
-					}
-					e.id = 0
-				} else {
-					return false
-				}
-			} else {
-				e, i = crun.newExplod()
-				if e == nil {
-					return false
-				}
-				e.id = 0
-			}
-			e.layerno, e.sprpriority, e.ownpal = 1, math.MinInt32, true
-		}
 		switch paramID {
 		case gameMakeAnim_pos:
 			e.relativePos[0] = exp[0].evalF(c) * redirscale
@@ -6499,9 +6432,7 @@ func (sc gameMakeAnim) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
-	if e == nil {
-		return false
-	}
+
 	e.relativePos[0] -= float32(crun.size.draw.offset[0])
 	e.relativePos[1] -= float32(crun.size.draw.offset[1])
 	e.setPos(crun)
@@ -6608,28 +6539,26 @@ func (sc afterImage) runSub(c *Char, ai *AfterImage, paramID byte, exp []Bytecod
 }
 
 func (sc afterImage) Run(c *Char, _ []int32) bool {
-	crun := c
-	doOnce := false
+	crun := getRedirectedChar(c, StateControllerBase(sc), afterImage_redirectid, "AfterImage")
+	if crun == nil {
+		return false
+	}
+
+	crun.aimg.clear()
+	if c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 &&
+		c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 {
+		crun.aimg.palfx[0].invertblend = -2
+	}
+	crun.aimg.time = 1
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		if paramID == afterImage_redirectid {
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
-		}
-		if !doOnce {
-			crun.aimg.clear()
-			// Mugen 1.1 behavior if invertblend param is omitted (Only if char mugenversion = 1.1)
-			if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
-				crun.aimg.palfx[0].invertblend = -2
-			}
-			crun.aimg.time = 1
-			doOnce = true
+			return true // Already handled. Avoid runSub
 		}
 		sc.runSub(c, &crun.aimg, paramID, exp)
 		return true
 	})
+
 	crun.aimg.setupPalFX()
 	return false
 }
@@ -6642,18 +6571,16 @@ const (
 )
 
 func (sc afterImageTime) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), afterImageTime_redirectid, "AfterImageTime")
+	if crun == nil {
+		return false
+	}
+
+	if crun.aimg.timegap <= 0 {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		if paramID == afterImageTime_redirectid {
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
-		}
-		if crun.aimg.timegap <= 0 {
-			return false
-		}
 		switch paramID {
 		case afterImageTime_time:
 			time := exp[0].evalI(c)
@@ -6778,6 +6705,7 @@ const (
 	hitDef_attack_depth
 	hitDef_sparkscale
 	hitDef_guard_sparkscale
+	hitDef_unhittabletime
 	hitDef_last = iota + afterImage_last + 1 - 1
 	hitDef_redirectid
 )
@@ -6866,6 +6794,8 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, paramID byte, exp []BytecodeExp) bo
 	case hitDef_priority:
 		hd.priority = exp[0].evalI(c)
 		hd.prioritytype = TradeType(exp[1].evalI(c))
+		// In Mugen, the range of priority is not 1-7 as documented, but rather 0-MaxInt32
+		// There's no apparent benefit to restricting negative values, so at the moment Ikemen does not do it
 	case hitDef_p1stateno:
 		hd.p1stateno = exp[0].evalI(c)
 	case hitDef_p2stateno:
@@ -6951,9 +6881,8 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, paramID byte, exp []BytecodeExp) bo
 		hd.air_hittime = exp[0].evalI(c)
 	case hitDef_fall:
 		hd.ground_fall = exp[0].evalB(c)
-		hd.air_fall = hd.ground_fall
 	case hitDef_air_fall:
-		hd.air_fall = exp[0].evalB(c)
+		hd.air_fall = Btoi(exp[0].evalB(c)) // Read as bool but write as int
 	case hitDef_air_cornerpush_veloff:
 		hd.air_cornerpush_veloff = exp[0].evalF(c)
 	case hitDef_down_bounce:
@@ -7011,14 +6940,14 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, paramID byte, exp []BytecodeExp) bo
 			hd.guard_dist_z[1] = v2
 		}
 	case hitDef_pausetime:
-		hd.pausetime = exp[0].evalI(c)
+		hd.pausetime[0] = exp[0].evalI(c)
 		if len(exp) > 1 {
-			hd.shaketime = exp[1].evalI(c)
+			hd.pausetime[1] = exp[1].evalI(c)
 		}
 	case hitDef_guard_pausetime:
-		hd.guard_pausetime = exp[0].evalI(c)
+		hd.guard_pausetime[0] = exp[0].evalI(c)
 		if len(exp) > 1 {
-			hd.guard_shaketime = exp[1].evalI(c)
+			hd.guard_pausetime[1] = exp[1].evalI(c)
 		}
 	case hitDef_air_velocity:
 		hd.air_velocity[0] = exp[0].evalF(c)
@@ -7143,6 +7072,11 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, paramID byte, exp []BytecodeExp) bo
 		if len(exp) > 1 {
 			hd.guard_sparkscale[1] = exp[1].evalF(c)
 		}
+	case hitDef_unhittabletime:
+		hd.unhittabletime[0] = exp[0].evalI(c)
+		if len(exp) > 1 {
+			hd.unhittabletime[1] = exp[1].evalI(c)
+		}
 	default:
 		if !palFX(sc).runSub(c, &hd.palfx, paramID, exp) {
 			return false
@@ -7152,33 +7086,37 @@ func (sc hitDef) runSub(c *Char, hd *HitDef, paramID byte, exp []BytecodeExp) bo
 }
 
 func (sc hitDef) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitDef_redirectid, "HitDef")
+	if crun == nil {
+		return false
+	}
+
 	crun.hitdef.clear(crun, crun.localscl)
 	crun.hitdef.playerNo = sys.workingState.playerNo
+
+	// Mugen 1.1 behavior if invertblend param is omitted
+	if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
+		crun.hitdef.palfx.invertblend = -2
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		if paramID == hitDef_redirectid {
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				crun.hitdef.clear(crun, crun.localscl)
-				crun.hitdef.playerNo = sys.workingState.playerNo
-			} else {
-				return false
-			}
-		}
-		// Mugen 1.1 behavior if invertblend param is omitted (Only if char mugenversion = 1.1)
-		if c.stWgi().mugenver[0] == 1 && c.stWgi().mugenver[1] == 1 && c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 {
-			crun.hitdef.palfx.invertblend = -2
+			return true // Already handled. Avoid runSub
 		}
 		sc.runSub(c, &crun.hitdef, paramID, exp)
 		return true
 	})
+
+	// The fix below seems to be a misunderstanding of some property interactions
+	// What happens is throws have hitonce = 1 and unhittabletime > 0 by default
 	// In WinMugen, when the attr of Hitdef is set to 'Throw' and the pausetime
 	// on the attacker's side is greater than 1, it no longer executes every frame
-	if c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 && c.stWgi().mugenver[0] != 1 && // Not crun
-		crun.hitdef.attr&int32(AT_AT) != 0 && crun.hitdef.pausetime > 0 && crun.moveContact() == 1 { // crun
-		crun.hitdef.attr = 0
-		return false
-	}
+	//if c.stWgi().ikemenver[0] == 0 && c.stWgi().ikemenver[1] == 0 && c.stWgi().mugenver[0] != 1 && // Not crun
+	//	crun.hitdef.attr&int32(AT_AT) != 0 && crun.hitdef.pausetime > 0 && crun.moveContact() == 1 { // crun
+	//	crun.hitdef.attr = 0
+	//	return false
+	//}
+
 	crun.setHitdefDefault(&crun.hitdef)
 	return false
 }
@@ -7187,31 +7125,38 @@ type reversalDef hitDef
 
 const (
 	reversalDef_reversal_attr = iota + hitDef_last + 1
+	reversalDef_reversal_guardflag
+	reversalDef_reversal_guardflag_not
 	reversalDef_redirectid
 )
 
 func (sc reversalDef) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), reversalDef_redirectid, "ReversalDef")
+	if crun == nil {
+		return false
+	}
+
 	crun.hitdef.clear(crun, crun.localscl)
 	crun.hitdef.playerNo = sys.workingState.playerNo
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case reversalDef_reversal_attr:
 			crun.hitdef.reversal_attr = exp[0].evalI(c)
+		case reversalDef_reversal_guardflag:
+			crun.hitdef.reversal_guardflag = exp[0].evalI(c)
+		case reversalDef_reversal_guardflag_not:
+			crun.hitdef.reversal_guardflag_not = exp[0].evalI(c)
 		case reversalDef_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				crun.hitdef.clear(crun, crun.localscl)
-				crun.hitdef.playerNo = sys.workingState.playerNo
-			} else {
-				return false
-			}
+			return true // Already handled. Avoid runSub
 		default:
 			hitDef(sc).runSub(c, &crun.hitdef, paramID, exp)
 		}
 		return true
 	})
+
 	crun.setHitdefDefault(&crun.hitdef)
+
 	return false
 }
 
@@ -7266,29 +7211,25 @@ const (
 
 // Additions to this state controller should also be done to ModifyProjectile
 func (sc projectile) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), projectile_redirectid, "Projectile")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	var p *Projectile
 	pt := PT_P1
-	var x, y, z float32 = 0, 0, 0
+	var offx, offy, offz float32 = 0, 0, 0
 	op := false
 	clsnscale := false
 	rp := [...]int32{-1, 0}
+
+	p = crun.newProj()
+	if p == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		if p == nil {
-			if paramID == projectile_redirectid {
-				if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-					crun = rid
-					redirscale = c.localscl / crun.localscl
-				} else {
-					return false
-				}
-			}
-			p = crun.newProj()
-			if p == nil {
-				return false
-			}
-		}
 		switch paramID {
 		case projectile_postype:
 			pt = PosType(exp[0].evalI(c))
@@ -7366,11 +7307,11 @@ func (sc projectile) Run(c *Char, _ []int32) bool {
 		case projectile_projxangle:
 			p.anglerot[1] = exp[0].evalF(c)
 		case projectile_offset:
-			x = exp[0].evalF(c) * redirscale
+			offx = exp[0].evalF(c) * redirscale
 			if len(exp) > 1 {
-				y = exp[1].evalF(c) * redirscale
+				offy = exp[1].evalF(c) * redirscale
 				if len(exp) > 2 {
-					z = exp[2].evalF(c) * redirscale
+					offz = exp[2].evalF(c) * redirscale
 				}
 			}
 		case projectile_projsprpriority:
@@ -7449,6 +7390,8 @@ func (sc projectile) Run(c *Char, _ []int32) bool {
 		// 	p.platformAngle = exp[0].evalF(c)
 		// case projectile_platformfence:
 		// 	p.platformFence = exp[0].evalB(c)
+		case projectile_redirectid:
+			return true // Already handled. Avoid runSub
 		default:
 			if !hitDef(sc).runSub(c, &p.hitdef, paramID, exp) {
 				afterImage(sc).runSub(c, &p.aimg, paramID, exp)
@@ -7456,9 +7399,7 @@ func (sc projectile) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
-	if p == nil {
-		return false
-	}
+
 	crun.setHitdefDefault(&p.hitdef)
 	if p.hitanim == -1 {
 		p.hitanim_ffx = p.anim_ffx
@@ -7474,7 +7415,7 @@ func (sc projectile) Run(c *Char, _ []int32) bool {
 	if p.aimg.time != 0 {
 		p.aimg.setupPalFX()
 	}
-	crun.projInit(p, pt, x, y, z, op, rp[0], rp[1], clsnscale)
+	crun.projInit(p, pt, offx, offy, offz, op, rp[0], rp[1], clsnscale)
 	return false
 }
 
@@ -7485,20 +7426,21 @@ const (
 )
 
 func (sc modifyHitDef) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyHitDef_redirectid, "ModifyHitDef")
+	if crun == nil {
+		return false
+	}
+
+	// TODO: This might be too restrictive
+	if crun.hitdef.attr <= 0 || crun.hitdef.reversal_attr > 0 {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
-		switch paramID {
-		case modifyHitDef_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
-		default:
-			if crun.hitdef.attr > 0 && crun.hitdef.reversal_attr == 0 {
-				hitDef(sc).runSub(c, &crun.hitdef, paramID, exp)
-			}
+		if paramID == modifyHitDef_redirectid {
+			return true // Already handled. Avoid runSub
 		}
+		hitDef(sc).runSub(c, &crun.hitdef, paramID, exp)
 		return true
 	})
 	return false
@@ -7508,27 +7450,34 @@ type modifyReversalDef hitDef
 
 const (
 	modifyReversalDef_reversal_attr = iota + hitDef_last + 1
+	modifyReversalDef_reversal_guardflag
+	modifyReversalDef_reversal_guardflag_not
 	modifyReversalDef_redirectid
 )
 
 func (sc modifyReversalDef) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyReversalDef_redirectid, "ModifyReversalDef")
+	if crun == nil {
+		return false
+	}
+
+	// TODO: This might be too restrictive
+	if crun.hitdef.reversal_attr <= 0 {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
-		case modifyReversalDef_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		case modifyReversalDef_reversal_attr:
-			if crun.hitdef.reversal_attr > 0 {
-				crun.hitdef.reversal_attr = exp[0].evalI(c)
-			}
+			crun.hitdef.reversal_attr = exp[0].evalI(c)
+		case modifyReversalDef_reversal_guardflag:
+			crun.hitdef.reversal_guardflag = exp[0].evalI(c)
+		case modifyReversalDef_reversal_guardflag_not:
+			crun.hitdef.reversal_guardflag_not = exp[0].evalI(c)
+		case modifyReversalDef_redirectid:
+			return true // Already handled. Avoid default
 		default:
-			if crun.hitdef.reversal_attr > 0 {
-				hitDef(sc).runSub(c, &crun.hitdef, paramID, exp)
-			}
+			hitDef(sc).runSub(c, &crun.hitdef, paramID, exp)
 		}
 		return true
 	})
@@ -7544,8 +7493,12 @@ const (
 )
 
 func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyProjectile_redirectid, "ModifyProjectile")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	mpid := int32(-1)
 	mpidx := int32(-1)
 	var projs []*Projectile
@@ -7558,19 +7511,15 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 			f(projs[mpidx])
 		}
 	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
-		case modifyProjectile_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		case modifyProjectile_id: // ID's to modify
 			mpid = exp[0].evalI(c)
 		case modifyProjectile_index: // index to modify
 			mpidx = exp[0].evalI(c)
+		case modifyProjectile_redirectid:
+			return true // Already handled. Avoid default
 		default:
 			if crun.helperIndex != 0 {
 				return false
@@ -8206,7 +8155,7 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 					p.hitdef.ground_fall = v1
 				})
 			case hitDef_air_fall:
-				v1 := exp[0].evalB(c)
+				v1 := Btoi(exp[0].evalB(c))
 				eachProj(func(p *Projectile) {
 					p.hitdef.air_fall = v1
 				})
@@ -8292,8 +8241,8 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 					v2 = exp[1].evalI(c)
 				}
 				eachProj(func(p *Projectile) {
-					p.hitdef.pausetime = v1
-					p.hitdef.shaketime = v2
+					p.hitdef.pausetime[0] = v1
+					p.hitdef.pausetime[1] = v2
 				})
 			case hitDef_guard_pausetime:
 				var v1, v2 int32
@@ -8302,8 +8251,8 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 					v2 = exp[1].evalI(c)
 				}
 				eachProj(func(p *Projectile) {
-					p.hitdef.guard_pausetime = v1
-					p.hitdef.guard_shaketime = v2
+					p.hitdef.guard_pausetime[0] = v1
+					p.hitdef.guard_pausetime[1] = v2
 				})
 			case hitDef_air_velocity:
 				var v1, v2, v3 float32
@@ -8554,8 +8503,13 @@ const (
 )
 
 func (sc width) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), width_redirectid, "Width")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := (320 / c.localcoord) / (320 / crun.localcoord)
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case width_player:
@@ -8580,13 +8534,6 @@ func (sc width) Run(c *Char, _ []int32) bool {
 			}
 			crun.setWidth(v1*redirscale, v2*redirscale)
 			crun.setWidthEdge(v1*redirscale, v2*redirscale)
-		case width_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = (320 / c.localcoord) / (320 / crun.localcoord)
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8602,7 +8549,11 @@ const (
 )
 
 func (sc sprPriority) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), sprPriority_redirectid, "SprPriority")
+	if crun == nil {
+		return false
+	}
+
 	v := int32(0) // Mugen uses 0 even if no value is set at all
 	l := int32(0) // Defaults to 0 so that chars are less likely to be left forgotten in a different layer
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -8611,12 +8562,6 @@ func (sc sprPriority) Run(c *Char, _ []int32) bool {
 			v = exp[0].evalI(c)
 		case sprPriority_layerno:
 			l = exp[0].evalI(c)
-		case sprPriority_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8633,17 +8578,15 @@ const (
 )
 
 func (sc varSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), varSet_redirectid, "VarSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case varSet_:
 			exp[0].run(crun)
-		case varSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8658,17 +8601,15 @@ const (
 )
 
 func (sc turn) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), turn_redirectid, "Turn")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case turn_:
 			crun.setFacing(-crun.facing)
-		case turn_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8685,7 +8626,11 @@ const (
 )
 
 func (sc targetFacing) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetFacing_redirectid, "TargetFacing")
+	if crun == nil {
+		return false
+	}
+
 	tid, tidx := int32(-1), int(-1)
 	var value int32
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -8696,12 +8641,6 @@ func (sc targetFacing) Run(c *Char, _ []int32) bool {
 			tidx = int(exp[0].evalI(c))
 		case targetFacing_value:
 			value = exp[0].evalI(c)
-		case targetFacing_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8723,9 +8662,14 @@ const (
 )
 
 func (sc targetBind) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetBind_redirectid, "TargetBind")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	tid, tidx := int32(-1), int(-1)
-	var redirscale float32 = 1.0
 	time := int32(1)
 	var x, y, z float32 = 0, 0, 0
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -8743,13 +8687,6 @@ func (sc targetBind) Run(c *Char, _ []int32) bool {
 				if len(exp) > 2 {
 					z = exp[2].evalF(c) * redirscale
 				}
-			}
-		case targetBind_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
 			}
 		}
 		return true
@@ -8773,10 +8710,16 @@ const (
 )
 
 func (sc bindToTarget) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), bindToTarget_redirectid, "BindToTarget")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	tid, tidx := int32(-1), int(0)
 	time, x, y, z, hmf := int32(1), float32(0), float32(math.NaN()), float32(math.NaN()), HMF_F
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case bindToTarget_id:
@@ -8795,16 +8738,10 @@ func (sc bindToTarget) Run(c *Char, _ []int32) bool {
 			}
 		case bindToTarget_posz:
 			z = exp[0].evalF(c) * redirscale
-		case bindToTarget_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
+
 	tar := crun.getTarget(tid, tidx)
 	if len(tar) > 0 {
 		crun.bindToTarget(tar, time, x, y, z, hmf)
@@ -8826,7 +8763,11 @@ const (
 )
 
 func (sc targetLifeAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetLifeAdd_redirectid, "TargetLifeAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs, kill, d, r := false, true, true, true
 	var value int32
 	tid, tidx := int32(-1), int(-1)
@@ -8846,12 +8787,6 @@ func (sc targetLifeAdd) Run(c *Char, _ []int32) bool {
 			r = exp[0].evalB(c)
 		case targetLifeAdd_value:
 			value = exp[0].evalI(c)
-		case targetLifeAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8872,7 +8807,11 @@ const (
 )
 
 func (sc targetState) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetState_redirectid, "TargetState")
+	if crun == nil {
+		return false
+	}
+
 	tid, tidx := int32(-1), int(-1)
 	vl := int32(-1)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -8883,12 +8822,6 @@ func (sc targetState) Run(c *Char, _ []int32) bool {
 			tidx = int(exp[0].evalI(c))
 		case targetState_value:
 			vl = exp[0].evalI(c)
-		case targetState_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8911,8 +8844,13 @@ const (
 )
 
 func (sc targetVelSet) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetVelSet_redirectid, "TargetVelSet")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	tid, tidx := int32(-1), int(-1)
 	var setx, sety, setz bool
 	var velx, vely, velz float32
@@ -8931,13 +8869,6 @@ func (sc targetVelSet) Run(c *Char, _ []int32) bool {
 		case targetVelSet_z:
 			velz = exp[0].evalF(c) * redirscale
 			setz = true
-		case targetVelSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -8968,8 +8899,13 @@ const (
 )
 
 func (sc targetVelAdd) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetVelAdd_redirectid, "TargetVelAdd")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	tid, tidx := int32(-1), int(-1)
 	var setx, sety, setz bool
 	var velx, vely, velz float32
@@ -8988,13 +8924,6 @@ func (sc targetVelAdd) Run(c *Char, _ []int32) bool {
 		case targetVelAdd_z:
 			velz = exp[0].evalF(c) * redirscale
 			setz = true
-		case targetVelAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9023,7 +8952,11 @@ const (
 )
 
 func (sc targetPowerAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetPowerAdd_redirectid, "TargetPowerAdd")
+	if crun == nil {
+		return false
+	}
+
 	tid, tidx := int32(-1), int(-1)
 	vl := int32(0)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -9034,12 +8967,6 @@ func (sc targetPowerAdd) Run(c *Char, _ []int32) bool {
 			tidx = int(exp[0].evalI(c))
 		case targetPowerAdd_value:
 			vl = exp[0].evalI(c)
-		case targetPowerAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9059,7 +8986,11 @@ const (
 )
 
 func (sc targetDrop) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetDrop_redirectid, "TargetDrop")
+	if crun == nil {
+		return false
+	}
+
 	eid, keep := int32(-1), true
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -9067,12 +8998,6 @@ func (sc targetDrop) Run(c *Char, _ []int32) bool {
 			eid = exp[0].evalI(c)
 		case targetDrop_keepone:
 			keep = exp[0].evalB(c)
-		case targetDrop_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9093,8 +9018,12 @@ const (
 )
 
 func (sc lifeAdd) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), lifeAdd_redirectid, "LifeAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs, kill := false, true
-	crun := c
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case lifeAdd_absolute:
@@ -9109,12 +9038,6 @@ func (sc lifeAdd) Run(c *Char, _ []int32) bool {
 			}
 			crun.lifeAdd(float64(v), kill, abs)
 			crun.ghv.kill = kill // The kill GetHitVar must currently be set here because c.lifeAdd is also used internally
-		case lifeAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9129,17 +9052,15 @@ const (
 )
 
 func (sc lifeSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), lifeSet_redirectid, "LifeSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case lifeSet_value:
 			crun.lifeSet(exp[0].evalI(c))
-		case lifeSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9154,17 +9075,15 @@ const (
 )
 
 func (sc powerAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), powerAdd_redirectid, "PowerAdd")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case powerAdd_value:
 			crun.powerAdd(exp[0].evalI(c))
-		case powerAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9179,17 +9098,15 @@ const (
 )
 
 func (sc powerSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), powerSet_redirectid, "PowerSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case powerSet_value:
 			crun.powerSet(exp[0].evalI(c))
-		case powerSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9205,9 +9122,13 @@ const (
 	hitVelSet_redirectid
 )
 
+// Note: HitVelSet doesn't require Movetype H in Mugen
 func (sc hitVelSet) Run(c *Char, _ []int32) bool {
-	// Note: HitVelSet doesn't require Movetype H in Mugen
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitVelSet_redirectid, "HitVelSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitVelSet_x:
@@ -9221,12 +9142,6 @@ func (sc hitVelSet) Run(c *Char, _ []int32) bool {
 		case hitVelSet_z:
 			if exp[0].evalB(c) {
 				crun.vel[2] = crun.ghv.zvel
-			}
-		case hitVelSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -9244,7 +9159,11 @@ const (
 )
 
 func (sc screenBound) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), screenBound_redirectid, "ScreenBound")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case screenBound_value:
@@ -9274,12 +9193,6 @@ func (sc screenBound) Run(c *Char, _ []int32) bool {
 			} else {
 				crun.unsetCSF(CSF_stagebound)
 			}
-		case screenBound_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9294,18 +9207,16 @@ const (
 )
 
 func (sc posFreeze) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), posFreeze_redirectid, "PosFreeze")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case posFreeze_value:
 			if exp[0].evalB(c) {
 				crun.setCSF(CSF_posfreeze)
-			}
-		case posFreeze_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -9357,23 +9268,32 @@ const (
 	hitOverride_stateno
 	hitOverride_time
 	hitOverride_forceair
+	hitOverride_forceguard
+	hitOverride_guardflag
+	hitOverride_guardflag_not
 	hitOverride_keepstate
 	hitOverride_redirectid
 )
 
 func (sc hitOverride) Run(c *Char, _ []int32) bool {
-	crun := c
-	var a, s, st, t int32 = 0, 0, -1, 1
-	f := false
-	ks := false
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitOverride_redirectid, "HitOverride")
+	if crun == nil {
+		return false
+	}
+
+	var at, sl, st, t int32 = 0, 0, -1, 1
+	var fa, fg, ks bool
+	gf := IErr
+	gfn := IErr
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitOverride_attr:
-			a = exp[0].evalI(c)
+			at = exp[0].evalI(c)
 		case hitOverride_slot:
-			s = Max(0, exp[0].evalI(c))
-			if s > 7 {
-				s = 0
+			sl = Max(0, exp[0].evalI(c))
+			if sl > 7 {
+				sl = 0
 			}
 		case hitOverride_stateno:
 			st = exp[0].evalI(c)
@@ -9383,25 +9303,35 @@ func (sc hitOverride) Run(c *Char, _ []int32) bool {
 				t = 1
 			}
 		case hitOverride_forceair:
-			f = exp[0].evalB(c)
+			fa = exp[0].evalB(c)
+		case hitOverride_forceguard:
+			fg = exp[0].evalB(c)
 		case hitOverride_keepstate:
-			if st == -1 { // StateNo disables KeepState
-				ks = exp[0].evalB(c)
-			}
-		case hitOverride_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
+			ks = exp[0].evalB(c) // Shouldn't be used together with StateNo but no need to block it either
+		case hitOverride_guardflag:
+			gf = exp[0].evalI(c)
+		case hitOverride_guardflag_not:
+			gfn = exp[0].evalI(c)
 		}
 		return true
 	})
-	if st < 0 && !ks && !f {
-		t = 0
-	}
+
+	// In Mugen, using an undefined state number is still a valid HitOverride
+	//if st < 0 && !ks && !f {
+	//	t = 0
+	//}
 	pn := crun.playerNo
-	crun.ho[s] = HitOverride{attr: a, stateno: st, time: t, forceair: f, keepState: ks, playerNo: pn}
+	crun.hover[sl] = HitOverride{
+		attr:          at,
+		stateno:       st,
+		time:          t,
+		forceair:      fa,
+		forceguard:    fg,
+		keepState:     ks,
+		guardflag:     gf,
+		guardflag_not: gfn,
+		playerNo:      pn, // This seems to be unused currently
+	}
 	return false
 }
 
@@ -9416,7 +9346,11 @@ const (
 )
 
 func (sc pause) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), pause_redirectid, "Pause")
+	if crun == nil {
+		return false
+	}
+
 	var t, mt int32 = 0, 0
 	sys.pausebg, sys.pauseendcmdbuftime = true, 0
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -9429,12 +9363,6 @@ func (sc pause) Run(c *Char, _ []int32) bool {
 			sys.pausebg = exp[0].evalB(c)
 		case pause_endcmdbuftime:
 			sys.pauseendcmdbuftime = exp[0].evalI(c)
-		case pause_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9460,13 +9388,18 @@ const (
 )
 
 func (sc superPause) Run(c *Char, _ []int32) bool {
-	crun := c
-	var t, mt int32 = 30, 0
-	uh := true
-	animset := false
+	crun := getRedirectedChar(c, StateControllerBase(sc), superPause_redirectid, "SuperPause")
+	if crun == nil {
+		return false
+	}
+
 	sys.superpmap.remap = nil
 	sys.superpos = [2]float32{crun.pos[0] * crun.localscl, crun.pos[1] * crun.localscl}
 	sys.superscale = [2]float32{crun.facing, 1}
+
+	var t, mt int32 = 30, 0
+	uh := true
+	animset := false
 	sys.superpausebg = true
 	sys.superendcmdbuftime = 0
 	sys.superdarken = true
@@ -9517,15 +9450,6 @@ func (sc superPause) Run(c *Char, _ []int32) bool {
 			ffx := string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 			crun.playSound(ffx, false, 0, exp[1].evalI(c), n, -1,
 				vo, 0, 1, 1, nil, false, 0, 0, 0, 0, false, false)
-		case superPause_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				sys.superpmap.remap = nil
-				sys.superpos = [2]float32{crun.pos[0] * crun.localscl, crun.pos[1] * crun.localscl}
-				sys.superscale = [2]float32{crun.facing, 1}
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9554,8 +9478,14 @@ const (
 )
 
 func (sc trans) Run(c *Char, _ []int32) bool {
-	crun := c
-	crun.alpha[1] = 255
+	crun := getRedirectedChar(c, StateControllerBase(sc), trans_redirectid, "Trans")
+	if crun == nil {
+		return false
+	}
+
+	// Mugen 1.1 doesn't seem to do this. Leftover code?
+	//crun.alpha[1] = 255
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case trans_trans:
@@ -9570,12 +9500,6 @@ func (sc trans) Run(c *Char, _ []int32) bool {
 				if crun.alpha[0] == 1 && crun.alpha[1] == 255 {
 					crun.alpha[0] = 0
 				}
-			}
-		case trans_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -9593,7 +9517,11 @@ const (
 )
 
 func (sc playerPush) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), playerPush_redirectid, "PlayerPush")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case playerPush_value:
@@ -9604,12 +9532,6 @@ func (sc playerPush) Run(c *Char, _ []int32) bool {
 			}
 		case playerPush_priority:
 			crun.pushPriority = exp[0].evalI(c)
-		case playerPush_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9626,7 +9548,11 @@ const (
 )
 
 func (sc stateTypeSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), stateTypeSet_redirectid, "StateTypeSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case stateTypeSet_statetype:
@@ -9635,12 +9561,6 @@ func (sc stateTypeSet) Run(c *Char, _ []int32) bool {
 			crun.ss.changeMoveType(MoveType(exp[0].evalI(c)))
 		case stateTypeSet_physics:
 			crun.ss.physics = StateType(exp[0].evalI(c))
-		case stateTypeSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9658,7 +9578,11 @@ const (
 )
 
 func (sc angleDraw) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), angleDraw_redirectid, "AngleDraw")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case angleDraw_value:
@@ -9672,15 +9596,10 @@ func (sc angleDraw) Run(c *Char, _ []int32) bool {
 			if len(exp) > 1 {
 				crun.angleDrawScale[1] *= exp[1].evalF(c)
 			}
-		case angleDraw_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
+
 	crun.setCSF(CSF_angledraw)
 	return false
 }
@@ -9695,7 +9614,11 @@ const (
 )
 
 func (sc angleSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), angleSet_redirectid, "AngleSet")
+	if crun == nil {
+		return false
+	}
+
 	v1 := float32(0) // Mugen uses 0 if no value is set at all
 	v2 := float32(0)
 	v3 := float32(0)
@@ -9707,12 +9630,6 @@ func (sc angleSet) Run(c *Char, _ []int32) bool {
 			v2 = exp[0].evalF(c)
 		case angleSet_y:
 			v3 = exp[0].evalF(c)
-		case angleSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9732,7 +9649,11 @@ const (
 )
 
 func (sc angleAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), angleAdd_redirectid, "AngleAdd")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case angleAdd_value:
@@ -9741,12 +9662,6 @@ func (sc angleAdd) Run(c *Char, _ []int32) bool {
 			crun.XangleSet(crun.anglerot[1] + exp[0].evalF(c))
 		case angleAdd_y:
 			crun.YangleSet(crun.anglerot[2] + exp[0].evalF(c))
-		case angleAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9763,7 +9678,11 @@ const (
 )
 
 func (sc angleMul) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), angleMul_redirectid, "AngleMul")
+	if crun == nil {
+		return false
+	}
+
 	v1 := float32(0) // Mugen uses 0 if no value is set at all
 	v2 := float32(0)
 	v3 := float32(0)
@@ -9775,12 +9694,6 @@ func (sc angleMul) Run(c *Char, _ []int32) bool {
 			v2 = exp[0].evalF(c)
 		case angleMul_y:
 			v3 = exp[0].evalF(c)
-		case angleMul_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9827,7 +9740,11 @@ const (
 )
 
 func (sc displayToClipboard) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), displayToClipboard_redirectid, "DisplayToClipboard")
+	if crun == nil {
+		return false
+	}
+
 	params := []interface{}{}
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -9843,12 +9760,6 @@ func (sc displayToClipboard) Run(c *Char, _ []int32) bool {
 			crun.clipboardText = nil
 			crun.appendToClipboard(sys.workingState.playerNo,
 				int(exp[0].evalI(c)), params...)
-		case displayToClipboard_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9858,7 +9769,11 @@ func (sc displayToClipboard) Run(c *Char, _ []int32) bool {
 type appendToClipboard displayToClipboard
 
 func (sc appendToClipboard) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), displayToClipboard_redirectid, "AppendToClipBoard")
+	if crun == nil {
+		return false
+	}
+
 	params := []interface{}{}
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -9873,12 +9788,6 @@ func (sc appendToClipboard) Run(c *Char, _ []int32) bool {
 		case displayToClipboard_text:
 			crun.appendToClipboard(sys.workingState.playerNo,
 				int(exp[0].evalI(c)), params...)
-		case displayToClipboard_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9893,17 +9802,15 @@ const (
 )
 
 func (sc clearClipboard) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), clearClipboard_redirectid, "ClearClipboard")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case clearClipboard_:
 			crun.clipboardText = nil
-		case clearClipboard_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9920,7 +9827,11 @@ const (
 )
 
 func (sc makeDust) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), makeDust_redirectid, "MakeDust")
+	if crun == nil {
+		return false
+	}
+
 	spacing := int(3) // Default spacing is 3
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -9946,12 +9857,6 @@ func (sc makeDust) Run(c *Char, _ []int32) bool {
 			}
 			crun.makeDust(x-float32(crun.size.draw.offset[0]),
 				y-float32(crun.size.draw.offset[1]), z, spacing)
-		case makeDust_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -9968,8 +9873,13 @@ const (
 )
 
 func (sc attackDist) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), attackDist_redirectid, "AttackDist")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case attackDist_x:
@@ -9990,13 +9900,6 @@ func (sc attackDist) Run(c *Char, _ []int32) bool {
 			if len(exp) > 1 {
 				crun.hitdef.guard_dist_z[1] = MaxF(0, exp[1].evalF(c)*redirscale)
 			}
-		case attackDist_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10015,7 +9918,11 @@ const (
 )
 
 func (sc attackMulSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), attackMulSet_redirectid, "AttackMulSet")
+	if crun == nil {
+		return false
+	}
+
 	base := float32(crun.gi().data.attack) * crun.ocd().attackRatio / 100
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -10033,12 +9940,6 @@ func (sc attackMulSet) Run(c *Char, _ []int32) bool {
 			crun.attackMul[2] = exp[0].evalF(c) * base
 		case attackMulSet_guardpoints:
 			crun.attackMul[3] = exp[0].evalF(c) * base
-		case attackMulSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10055,7 +9956,11 @@ const (
 )
 
 func (sc defenceMulSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), defenceMulSet_redirectid, "DefenceMulSet")
+	if crun == nil {
+		return false
+	}
+
 	var val float32 = 1
 	var onHit bool = false
 	var mulType int32 = 1
@@ -10074,12 +9979,6 @@ func (sc defenceMulSet) Run(c *Char, _ []int32) bool {
 			onHit = exp[0].evalB(c)
 		case defenceMulSet_mulType:
 			mulType = exp[0].evalI(c)
-		case defenceMulSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10105,7 +10004,11 @@ const (
 )
 
 func (sc fallEnvShake) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), fallEnvShake_redirectid, "FallEnvShake")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case fallEnvShake_:
@@ -10118,12 +10021,6 @@ func (sc fallEnvShake) Run(c *Char, _ []int32) bool {
 					dir:   crun.ghv.fall_envshake_dir * float32(math.Pi) / 180}
 				sys.envShake.setDefaultPhase()
 				crun.ghv.fall_envshake_time = 0
-			}
-		case fallEnvShake_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -10139,17 +10036,15 @@ const (
 )
 
 func (sc hitFallDamage) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitFallDamage_redirectid, "HitFallDamage")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitFallDamage_:
 			crun.hitFallDamage()
-		case hitFallDamage_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10164,17 +10059,15 @@ const (
 )
 
 func (sc hitFallVel) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitFallVel_redirectid, "HitFallVel")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitFallVel_:
 			crun.hitFallVel()
-		case hitFallVel_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10192,13 +10085,17 @@ const (
 )
 
 func (sc hitFallSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitFallSet_redirectid, "HitFallSet")
+	if crun == nil {
+		return false
+	}
+
 	f, xv, yv, zv := int32(-1), float32(math.NaN()), float32(math.NaN()), float32(math.NaN())
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitFallSet_value:
 			f = exp[0].evalI(c)
-			if len(crun.ghv.hitBy) == 0 {
+			if len(crun.ghv.targetedBy) == 0 {
 				return false
 			}
 		case hitFallSet_xvel:
@@ -10207,12 +10104,6 @@ func (sc hitFallSet) Run(c *Char, _ []int32) bool {
 			yv = exp[0].evalF(c)
 		case hitFallSet_zvel:
 			zv = exp[0].evalF(c)
-		case hitFallSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10231,7 +10122,11 @@ const (
 )
 
 func (sc varRangeSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), varRangeSet_redirectid, "VarRangeSet")
+	if crun == nil {
+		return false
+	}
+
 	first := int32(0)
 	last := int32(59) // Legacy default because MaxInt32 would stall the game
 
@@ -10247,12 +10142,6 @@ func (sc varRangeSet) Run(c *Char, _ []int32) bool {
 		case varRangeSet_fvalue:
 			fval := exp[0].evalF(c)
 			crun.fvarRangeSet(first, last, fval)
-		case varRangeSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10268,7 +10157,11 @@ const (
 )
 
 func (sc remapPal) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), remapPal_redirectid, "RemapPal")
+	if crun == nil {
+		return false
+	}
+
 	src := [...]int32{-1, 0}
 	dst := [...]int32{-1, 0} // This is the default but technically the compiler crashes if dest is not specified
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -10282,12 +10175,6 @@ func (sc remapPal) Run(c *Char, _ []int32) bool {
 			dst = [...]int32{exp[0].evalI(c), -1}
 			if len(exp) > 1 {
 				dst[1] = exp[1].evalI(c)
-			}
-		case remapPal_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -10304,7 +10191,11 @@ const (
 )
 
 func (sc stopSnd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), stopSnd_redirectid, "StopSnd")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case stopSnd_channel:
@@ -10312,12 +10203,6 @@ func (sc stopSnd) Run(c *Char, _ []int32) bool {
 				sys.stopAllSound()
 			} else if c := crun.soundChannels.Get(ch); c != nil {
 				c.Stop()
-			}
-		case stopSnd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -10335,8 +10220,13 @@ const (
 )
 
 func (sc sndPan) Run(c *Char, _ []int32) bool {
-	crun := c
-	ch, pan, x := int32(-1), float32(0), &crun.pos[0]
+	crun := getRedirectedChar(c, StateControllerBase(sc), sndPan_redirectid, "SndPan")
+	if crun == nil {
+		return false
+	}
+
+	x := &crun.pos[0]
+	ch, pan := int32(-1), float32(0)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case sndPan_channel:
@@ -10346,13 +10236,6 @@ func (sc sndPan) Run(c *Char, _ []int32) bool {
 		case sndPan_abspan:
 			pan = exp[0].evalF(c)
 			x = nil
-		case sndPan_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				x = &crun.pos[0]
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10371,7 +10254,11 @@ const (
 )
 
 func (sc varRandom) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), varRandom_redirectid, "VarRandom")
+	if crun == nil {
+		return false
+	}
+
 	var v int32
 	var min, max int32 = 0, 1000
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -10382,12 +10269,6 @@ func (sc varRandom) Run(c *Char, _ []int32) bool {
 			min, max = 0, exp[0].evalI(c)
 			if len(exp) > 1 {
 				min, max = max, exp[1].evalI(c)
-			}
-		case varRandom_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
 			}
 		}
 		return true
@@ -10404,17 +10285,15 @@ const (
 )
 
 func (sc gravity) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), gravity_redirectid, "Gravity")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case gravity_:
 			crun.gravity()
-		case gravity_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10431,8 +10310,12 @@ const (
 )
 
 func (sc bindToParent) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), bindToParent_redirectid, "BindToParent")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	var x, y, z float32 = 0, 0, 0
 	var time int32 = 1
 
@@ -10453,13 +10336,6 @@ func (sc bindToParent) Run(c *Char, _ []int32) bool {
 				if len(exp) > 2 {
 					z = exp[2].evalF(c) * redirscale
 				}
-			}
-		case bindToParent_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
 			}
 		}
 		return true
@@ -10481,8 +10357,12 @@ func (sc bindToParent) Run(c *Char, _ []int32) bool {
 type bindToRoot bindToParent
 
 func (sc bindToRoot) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), bindToParent_redirectid, "BindToRoot")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
 	var x, y, z float32 = 0, 0, 0
 	var time int32 = 1
 
@@ -10503,13 +10383,6 @@ func (sc bindToRoot) Run(c *Char, _ []int32) bool {
 				if len(exp) > 2 {
 					z = exp[2].evalF(c) * redirscale
 				}
-			}
-		case bindToParent_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
 			}
 		}
 		return true
@@ -10532,12 +10405,16 @@ type removeExplod StateControllerBase
 
 const (
 	removeExplod_id byte = iota
-	removeExplod_redirectid
 	removeExplod_index
+	removeExplod_redirectid
 )
 
 func (sc removeExplod) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), removeExplod_redirectid, "RemoveExplod")
+	if crun == nil {
+		return false
+	}
+
 	eid := int32(-1)
 	idx := int32(-1)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -10546,12 +10423,6 @@ func (sc removeExplod) Run(c *Char, _ []int32) bool {
 			eid = exp[0].evalI(c)
 		case removeExplod_index:
 			idx = exp[0].evalI(c)
-		case removeExplod_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10568,7 +10439,11 @@ const (
 )
 
 func (sc explodBindTime) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), explodBindTime_redirectid, "ExplodBindTime")
+	if crun == nil {
+		return false
+	}
+
 	var eid, time int32 = -1, 0
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
@@ -10576,12 +10451,6 @@ func (sc explodBindTime) Run(c *Char, _ []int32) bool {
 			eid = exp[0].evalI(c)
 		case explodBindTime_time:
 			time = exp[0].evalI(c)
-		case explodBindTime_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10597,17 +10466,15 @@ const (
 )
 
 func (sc moveHitReset) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), moveHitReset_redirectid, "MoveHitReset")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case moveHitReset_:
 			crun.clearMoveHit()
-		case moveHitReset_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10622,17 +10489,15 @@ const (
 )
 
 func (sc hitAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), hitAdd_redirectid, "HitAdd")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case hitAdd_value:
 			crun.hitAdd(exp[0].evalI(c))
-		case hitAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10648,19 +10513,17 @@ const (
 )
 
 func (sc offset) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), offset_redirectid, "Offset")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case offset_x:
 			crun.offset[0] = exp[0].evalF(c) * c.localscl
 		case offset_y:
 			crun.offset[1] = exp[0].evalF(c) * c.localscl
-		case offset_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10675,18 +10538,16 @@ const (
 )
 
 func (sc victoryQuote) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), victoryQuote_redirectid, "VictoryQuote")
+	if crun == nil {
+		return false
+	}
+
 	var v int32 = -1
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case victoryQuote_value:
 			v = exp[0].evalI(c)
-		case victoryQuote_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10806,7 +10667,11 @@ const (
 )
 
 func (sc assertCommand) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), assertCommand_redirectid, "AssertCommand")
+	if crun == nil {
+		return false
+	}
+
 	n := ""
 	bt := int32(1)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -10815,12 +10680,6 @@ func (sc assertCommand) Run(c *Char, _ []int32) bool {
 			n = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 		case assertCommand_buffertime:
 			bt = exp[0].evalI(c)
-		case assertCommand_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10832,20 +10691,32 @@ type assertInput StateControllerBase
 
 const (
 	assertInput_flag byte = iota
+	assertInput_flag_B
+	assertInput_flag_F
 	assertInput_redirectid
 )
 
 func (sc assertInput) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), assertInput_redirectid, "AssertInput")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case assertInput_flag:
 			crun.inputFlag |= InputBits(exp[0].evalI(c))
-		case assertInput_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
+		case assertInput_flag_B:
+			if crun.facing >= 0 {
+				crun.inputFlag |= IB_PL
 			} else {
-				return false
+				crun.inputFlag |= IB_PR
+			}
+		case assertInput_flag_F:
+			if crun.facing >= 0 {
+				crun.inputFlag |= IB_PR
+			} else {
+				crun.inputFlag |= IB_PL
 			}
 		}
 		return true
@@ -10863,7 +10734,11 @@ const (
 )
 
 func (sc dialogue) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), dialogue_redirectid, "Dialogue")
+	if crun == nil {
+		return false
+	}
+
 	reset := true
 	force := false
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -10875,12 +10750,6 @@ func (sc dialogue) Run(c *Char, _ []int32) bool {
 		case dialogue_text:
 			sys.chars[crun.playerNo][0].appendDialogue(string(*(*[]byte)(unsafe.Pointer(&exp[0]))), reset)
 			reset = false
-		case dialogue_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10900,20 +10769,18 @@ const (
 )
 
 func (sc dizzyPointsAdd) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), dizzyPointsAdd_redirectid, "DizzyPointsAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs := false
-	crun := c
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case dizzyPointsAdd_absolute:
 			abs = exp[0].evalB(c)
 		case dizzyPointsAdd_value:
 			crun.dizzyPointsAdd(float64(exp[0].evalI(c)), abs)
-		case dizzyPointsAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10928,17 +10795,15 @@ const (
 )
 
 func (sc dizzyPointsSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), dizzyPointsSet_redirectid, "DizzyPointsSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case dizzyPointsSet_value:
 			crun.dizzyPointsSet(exp[0].evalI(c))
-		case dizzyPointsSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10953,17 +10818,15 @@ const (
 )
 
 func (sc dizzySet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), dizzySet_redirectid, "DizzySet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case dizzySet_value:
 			crun.setDizzy(exp[0].evalB(c))
-		case dizzySet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -10978,17 +10841,15 @@ const (
 )
 
 func (sc guardBreakSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), guardBreakSet_redirectid, "GuardBreakSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case guardBreakSet_value:
 			crun.setGuardBreak(exp[0].evalB(c))
-		case guardBreakSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11004,20 +10865,18 @@ const (
 )
 
 func (sc guardPointsAdd) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), guardPointsAdd_redirectid, "GuardPointsAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs := false
-	crun := c
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case guardPointsAdd_absolute:
 			abs = exp[0].evalB(c)
 		case guardPointsAdd_value:
 			crun.guardPointsAdd(float64(exp[0].evalI(c)), abs)
-		case guardPointsAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11032,17 +10891,15 @@ const (
 )
 
 func (sc guardPointsSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), guardPointsSet_redirectid, "GuardPointsSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case guardPointsSet_value:
 			crun.guardPointsSet(exp[0].evalI(c))
-		case guardPointsSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11063,7 +10920,11 @@ const (
 )
 
 func (sc lifebarAction) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), lifebarAction_redirectid, "LifebarAction")
+	if crun == nil {
+		return false
+	}
+
 	var top bool
 	var text string
 	var timemul float32 = 1
@@ -11092,12 +10953,6 @@ func (sc lifebarAction) Run(c *Char, _ []int32) bool {
 			}
 		case lifebarAction_text:
 			text = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
-		case lifebarAction_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11114,7 +10969,11 @@ const (
 )
 
 func (sc loadFile) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), loadFile_redirectid, "LoadFile")
+	if crun == nil {
+		return false
+	}
+
 	var path string
 	var data SaveData
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -11123,12 +10982,6 @@ func (sc loadFile) Run(c *Char, _ []int32) bool {
 			path = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 		case loadFile_saveData:
 			data = SaveData(exp[0].evalI(c))
-		case loadFile_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11168,7 +11021,11 @@ const (
 )
 
 func (sc mapSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), mapSet_redirectid, "MapSet")
+	if crun == nil {
+		return false
+	}
+
 	var s string
 	var value float32
 	var scType int32
@@ -11180,12 +11037,6 @@ func (sc mapSet) Run(c *Char, _ []int32) bool {
 			value = exp[0].evalF(c)
 		case mapSet_type:
 			scType = exp[0].evalI(c)
-		case mapSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11299,20 +11150,18 @@ const (
 )
 
 func (sc redLifeAdd) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), redLifeAdd_redirectid, "RedLifeAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs := false
-	crun := c
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case redLifeAdd_absolute:
 			abs = exp[0].evalB(c)
 		case redLifeAdd_value:
 			crun.redLifeAdd(float64(exp[0].evalI(c)), abs)
-		case redLifeAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11327,17 +11176,15 @@ const (
 )
 
 func (sc redLifeSet) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), redLifeSet_redirectid, "RedLifeSet")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case redLifeSet_value:
 			crun.redLifeSet(exp[0].evalI(c))
-		case redLifeSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11355,7 +11202,11 @@ const (
 )
 
 func (sc remapSprite) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), remapSprite_redirectid, "RemapSprite")
+	if crun == nil {
+		return false
+	}
+
 	src := [...]int16{-1, -1}
 
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -11377,12 +11228,6 @@ func (sc remapSprite) Run(c *Char, _ []int32) bool {
 				dst[1] = int16(exp[1].evalI(c))
 			}
 			crun.remapSprite(src, dst)
-		case remapSprite_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11448,7 +11293,11 @@ const (
 )
 
 func (sc saveFile) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), saveFile_redirectid, "SaveFile")
+	if crun == nil {
+		return false
+	}
+
 	var path string
 	var data SaveData
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -11457,12 +11306,6 @@ func (sc saveFile) Run(c *Char, _ []int32) bool {
 			path = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 		case saveFile_saveData:
 			data = SaveData(exp[0].evalI(c))
-		case saveFile_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11499,17 +11342,15 @@ const (
 )
 
 func (sc scoreAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), scoreAdd_redirectid, "ScoreAdd")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case scoreAdd_value:
 			crun.scoreAdd(exp[0].evalF(c))
-		case scoreAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11536,7 +11377,6 @@ const (
 	modifyBGCtrl_invertblend
 	modifyBGCtrl_color
 	modifyBGCtrl_hue
-	modifyBGCtrl_redirectid
 )
 
 func (sc modifyBGCtrl) Run(c *Char, _ []int32) bool {
@@ -11549,6 +11389,7 @@ func (sc modifyBGCtrl) Run(c *Char, _ []int32) bool {
 	sinadd, sinmul := [4]int32{IErr, IErr, IErr, IErr}, [4]int32{IErr, IErr, IErr, IErr}
 	sincolor, sinhue := [2]int32{IErr, IErr}, [2]int32{IErr, IErr}
 	invall, invblend, color, hue := IErr, IErr, float32(math.NaN()), float32(math.NaN())
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case modifyBGCtrl_id:
@@ -11639,12 +11480,6 @@ func (sc modifyBGCtrl) Run(c *Char, _ []int32) bool {
 			color = exp[0].evalF(c)
 		case modifyBGCtrl_hue:
 			hue = exp[0].evalF(c)
-		case modifyBGCtrl_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				//crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11658,14 +11493,13 @@ const (
 	modifyBGCtrl3d_ctrlid byte = iota
 	modifyBGCtrl3d_time
 	modifyBGCtrl3d_value
-	modifyBGCtrl3d_redirectid
 )
 
 func (sc modifyBGCtrl3d) Run(c *Char, _ []int32) bool {
 	//crun := c
-
 	var cid int32
 	t, v := [3]int32{IErr, IErr, IErr}, [3]int32{IErr, IErr, IErr}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case modifyBGCtrl3d_ctrlid:
@@ -11686,12 +11520,6 @@ func (sc modifyBGCtrl3d) Run(c *Char, _ []int32) bool {
 					v[2] = exp[2].evalI(c)
 				}
 			}
-		case modifyBGCtrl3d_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				//crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -11707,18 +11535,25 @@ const (
 	modifyBgm_loopend
 	modifyBgm_position
 	modifyBgm_freqmul
-	modifyBgm_redirectid
 )
 
 func (sc modifyBgm) Run(c *Char, _ []int32) bool {
+	// No BGM to modify
+	// TODO: Maybe it'd be safer to init the system with a dummy BGM?
+	if sys.bgm.ctrl == nil {
+		return false
+	}
+
 	var volumeSet, loopStartSet, loopEndSet, posSet, freqSet = false, false, false, false, false
 	var volume, loopstart, loopend, position int = 100, 0, 0, 0
+	var freqmul float32 = 1.0
+
 	// Safety default sets
 	if sl, ok := sys.bgm.volctrl.Streamer.(*StreamLooper); ok {
 		loopstart = sl.loopstart
 		loopend = sl.loopend
 	}
-	var freqmul float32 = 1.0
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case modifyBgm_volume:
@@ -11736,34 +11571,28 @@ func (sc modifyBgm) Run(c *Char, _ []int32) bool {
 		case modifyBgm_freqmul:
 			freqmul = float32(exp[0].evalF(c))
 			freqSet = true
-		case modifyBgm_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-
-			} else {
-				return false
-			}
 		}
 		return true
 	})
-	if sys.bgm.ctrl != nil {
-		// Set values that are different only
-		if volumeSet {
-			volumeScaled := int(float64(volume) / 100.0 * float64(sys.cfg.Sound.MaxBGMVolume))
-			sys.bgm.bgmVolume = int(Min(int32(volumeScaled), int32(sys.cfg.Sound.MaxBGMVolume)))
-			sys.bgm.UpdateVolume()
-		}
-		if posSet {
-			sys.bgm.Seek(position)
-		}
-		if sl, ok := sys.bgm.volctrl.Streamer.(*StreamLooper); ok {
-			if (loopStartSet && sl.loopstart != loopstart) || (loopEndSet && sl.loopend != loopend) {
-				sys.bgm.SetLoopPoints(loopstart, loopend)
-			}
-		}
-		if freqSet && sys.bgm.freqmul != freqmul {
-			sys.bgm.SetFreqMul(freqmul)
+
+	// Set values that are different only
+	if volumeSet {
+		volumeScaled := int(float64(volume) / 100.0 * float64(sys.cfg.Sound.MaxBGMVolume))
+		sys.bgm.bgmVolume = int(Min(int32(volumeScaled), int32(sys.cfg.Sound.MaxBGMVolume)))
+		sys.bgm.UpdateVolume()
+	}
+	if posSet {
+		sys.bgm.Seek(position)
+	}
+	if sl, ok := sys.bgm.volctrl.Streamer.(*StreamLooper); ok {
+		if (loopStartSet && sl.loopstart != loopstart) || (loopEndSet && sl.loopend != loopend) {
+			sys.bgm.SetLoopPoints(loopstart, loopend)
 		}
 	}
+	if freqSet && sys.bgm.freqmul != freqmul {
+		sys.bgm.SetFreqMul(freqmul)
+	}
+
 	return false
 }
 
@@ -11776,7 +11605,6 @@ const (
 	modifySnd_volume
 	modifySnd_volumescale
 	modifySnd_freqmul
-	modifySnd_redirectid
 	modifySnd_priority
 	modifySnd_loopstart
 	modifySnd_loopend
@@ -11785,23 +11613,29 @@ const (
 	modifySnd_loopcount
 	modifySnd_stopongethit
 	modifySnd_stoponchangestate
+	modifySnd_redirectid
 )
 
 func (sc modifySnd) Run(c *Char, _ []int32) bool {
 	if sys.noSoundFlg {
 		return false
 	}
-	crun := c
-	snd := crun.soundChannels.Get(-1)
+
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifySnd_redirectid, "ModifySnd")
+	if crun == nil {
+		return false
+	}
+
+	x := &crun.pos[0]
+	ls := crun.localscl
+	var snd *SoundChannel
 	var ch, pri int32 = -1, 0
+	var stopgh, stopcs int32 = -1, -1 // Undefined bools
 	var vo, fr float32 = 100, 1.0
-	stopgh, stopcs := false, false
 	freqMulSet, volumeSet, prioritySet, panSet, loopStartSet, loopEndSet, posSet, lcSet, loopSet := false, false, false, false, false, false, false, false, false
-	stopghSet, stopcsSet := false, false
 	var loopstart, loopend, position, lc int = 0, 0, 0, 0
 	var p float32 = 0
-	x := &c.pos[0]
-	ls := crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case modifySnd_channel:
@@ -11853,21 +11687,13 @@ func (sc modifySnd) Run(c *Char, _ []int32) bool {
 			}
 			lcSet = true
 		case modifySnd_stopongethit:
-			stopgh = exp[0].evalB(c)
+			stopgh = Btoi(exp[0].evalB(c))
 		case modifySnd_stoponchangestate:
-			stopcs = exp[0].evalB(c)
-		case modifySnd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				x = &crun.pos[0]
-				ls = crun.localscl
-				snd = crun.soundChannels.Get(ch)
-			} else {
-				return false
-			}
+			stopcs = Btoi(exp[0].evalB(c))
 		}
 		return true
 	})
+
 	// Grab the correct sound channel now
 	channelCount := 1
 	if ch < 0 {
@@ -11924,11 +11750,11 @@ func (sc modifySnd) Run(c *Char, _ []int32) bool {
 				snd.SetVolume(vo)
 			}
 			// These flags can be updated regardless since there are no calculations involved
-			if stopghSet {
-				snd.stopOnGetHit = stopgh
+			if stopgh >= 0 {
+				snd.stopOnGetHit = stopgh != 0
 			}
-			if stopcsSet {
-				snd.stopOnChangeState = stopcs
+			if stopcs >= 0 {
+				snd.stopOnChangeState = stopgh != 0
 			}
 		}
 	}
@@ -11950,7 +11776,11 @@ const (
 )
 
 func (sc playBgm) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), playBgm_redirectid, "PlayBGM")
+	if crun == nil {
+		return false
+	}
+
 	var b, totalRecall bool
 	var bgm string
 	var loop, loopcount, volume, loopstart, loopend, startposition int = 1, -1, 100, 0, 0, 0
@@ -11986,12 +11816,6 @@ func (sc playBgm) Run(c *Char, _ []int32) bool {
 			freqmul = exp[0].evalF(c)
 		case playBgm_loopcount:
 			loopcount = int(exp[0].evalI(c))
-		case playBgm_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12021,7 +11845,11 @@ const (
 )
 
 func (sc targetDizzyPointsAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetDizzyPointsAdd_redirectid, "TargetDizzyPointsAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs := false
 	tid, tidx := int32(-1), int(-1)
 	vl := int32(0)
@@ -12035,12 +11863,6 @@ func (sc targetDizzyPointsAdd) Run(c *Char, _ []int32) bool {
 			abs = exp[0].evalB(c)
 		case targetDizzyPointsAdd_value:
 			vl = exp[0].evalI(c)
-		case targetDizzyPointsAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12062,7 +11884,11 @@ const (
 )
 
 func (sc targetGuardPointsAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetGuardPointsAdd_redirectid, "TargetGuardPointsAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs := false
 	tid, tidx := int32(-1), int(-1)
 	vl := int32(0)
@@ -12076,12 +11902,6 @@ func (sc targetGuardPointsAdd) Run(c *Char, _ []int32) bool {
 			abs = exp[0].evalB(c)
 		case targetGuardPointsAdd_value:
 			vl = exp[0].evalI(c)
-		case targetGuardPointsAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12103,7 +11923,11 @@ const (
 )
 
 func (sc targetRedLifeAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetRedLifeAdd_redirectid, "TargetRedLifeAdd")
+	if crun == nil {
+		return false
+	}
+
 	abs := false
 	tid, tidx := int32(-1), int(-1)
 	vl := int32(0)
@@ -12117,12 +11941,6 @@ func (sc targetRedLifeAdd) Run(c *Char, _ []int32) bool {
 			abs = exp[0].evalB(c)
 		case targetRedLifeAdd_value:
 			vl = exp[0].evalI(c)
-		case targetRedLifeAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12147,7 +11965,11 @@ const (
 )
 
 func (sc targetScoreAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetScoreAdd_redirectid, "TargetScoreAdd")
+	if crun == nil {
+		return false
+	}
+
 	tid, tidx := int32(-1), int(-1)
 	vl := float32(0)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
@@ -12158,12 +11980,6 @@ func (sc targetScoreAdd) Run(c *Char, _ []int32) bool {
 			tidx = int(exp[0].evalI(c))
 		case targetScoreAdd_value:
 			vl = exp[0].evalF(c)
-		case targetScoreAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12196,19 +12012,23 @@ const (
 	text_color
 	text_xshear
 	text_id
-	text_redirectid
 	text_last = iota + palFX_last + 1 - 1
+	text_redirectid
 )
 
 func (sc text) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), text_redirectid, "Text")
+	if crun == nil {
+		return false
+	}
+
 	params := []interface{}{}
-	ownerID := crun.id
 	ts := NewTextSprite()
+	ts.ownerid = crun.id
 	ts.SetLocalcoord(float32(sys.scrrect[2]), float32(sys.scrrect[3]))
 	var xscl, yscl float32 = 1, 1
 	var fnt int = -1
-	ts.ownerid = ownerID
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case text_removetime:
@@ -12247,7 +12067,14 @@ func (sc text) Run(c *Char, _ []int32) bool {
 				fnt = -1
 			}
 		case text_localcoord:
-			ts.SetLocalcoord(exp[0].evalF(c), exp[1].evalF(c))
+			var x, y float32
+			x = exp[0].evalF(c)
+			if len(exp) > 1 {
+				y = exp[1].evalF(c)
+			}
+			if x > 0 && y > 0 { // TODO: Maybe this safeguard could be in SetLocalcoord instead
+				ts.SetLocalcoord(x, y)
+			}
 		case text_bank:
 			ts.bank = exp[0].evalI(c)
 		case text_align:
@@ -12297,12 +12124,7 @@ func (sc text) Run(c *Char, _ []int32) bool {
 		case text_id:
 			ts.id = exp[0].evalI(c)
 		case text_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				ts.ownerid = crun.id
-			} else {
-				return false
-			}
+			return true // Already handled. Avoid default
 		default:
 			if applyTextPalFX(ts, paramID, exp, c) {
 				break
@@ -12406,18 +12228,16 @@ const (
 )
 
 func (sc removeText) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), removetext_redirectid, "RemoveText")
+	if crun == nil {
+		return false
+	}
+
 	textID := int32(-1)
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case removetext_id:
 			textID = exp[0].evalI(c)
-		case removetext_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12440,8 +12260,12 @@ const (
 )
 
 // The createPlatform bytecode function.
-func (sc createPlatform) Run(schara *Char, _ []int32) bool {
-	var chara = schara
+func (sc createPlatform) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), removetext_redirectid, "CreatePlatform")
+	if crun == nil {
+		return false
+	}
+
 	var customOffset = false
 	var plat = Platform{
 		anim:       -1,
@@ -12451,30 +12275,24 @@ func (sc createPlatform) Run(schara *Char, _ []int32) bool {
 		activeTime: -1,
 	}
 
-	StateControllerBase(sc).run(schara, func(paramID byte, exp []BytecodeExp) bool {
+	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case createPlatform_id:
-			plat.id = exp[0].evalI(schara)
+			plat.id = exp[0].evalI(c)
 		case createPlatform_name:
 			plat.name = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 		case createPlatform_pos:
-			plat.pos[0] = exp[0].evalF(schara)
-			plat.pos[1] = exp[1].evalF(schara)
+			plat.pos[0] = exp[0].evalF(c)
+			plat.pos[1] = exp[1].evalF(c)
 		case createPlatform_size:
-			plat.size[0] = exp[0].evalI(schara)
-			plat.size[1] = exp[1].evalI(schara)
+			plat.size[0] = exp[0].evalI(c)
+			plat.size[1] = exp[1].evalI(c)
 		case createPlatform_offset:
 			customOffset = true
-			plat.offset[0] = exp[0].evalI(schara)
-			plat.offset[1] = exp[1].evalI(schara)
+			plat.offset[0] = exp[0].evalI(c)
+			plat.offset[1] = exp[1].evalI(c)
 		case createPlatform_activeTime:
-			plat.activeTime = exp[0].evalI(schara)
-		case createPlatform_redirectid:
-			if rid := sys.playerID(exp[0].evalI(schara)); rid != nil {
-				chara = rid
-			} else {
-				return false
-			}
+			plat.activeTime = exp[0].evalI(c)
 		}
 		return true
 	})
@@ -12487,7 +12305,7 @@ func (sc createPlatform) Run(schara *Char, _ []int32) bool {
 			plat.offset[1] = plat.size[1] / 2
 		}
 	}
-	plat.ownerID = chara.id
+	plat.ownerID = crun.id
 
 	return false
 }
@@ -12567,6 +12385,8 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 	//crun := c RedirectID is pointless when modifying a stage
 	s := sys.stage
 	shouldResetCamera := false
+	scaleratio := c.localscl / s.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		// Camera group
@@ -12574,43 +12394,43 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 			s.stageCamera.autocenter = exp[0].evalB(c)
 			shouldResetCamera = true
 		case modifyStageVar_camera_boundleft:
-			s.stageCamera.boundleft = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.boundleft = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_boundright:
-			s.stageCamera.boundright = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.boundright = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_boundhigh:
-			s.stageCamera.boundhigh = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.boundhigh = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_boundlow:
-			s.stageCamera.boundlow = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.boundlow = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_verticalfollow:
 			s.stageCamera.verticalfollow = exp[0].evalF(c)
 			shouldResetCamera = true
 		case modifyStageVar_camera_floortension:
-			s.stageCamera.floortension = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.floortension = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_lowestcap:
 			s.stageCamera.lowestcap = exp[0].evalB(c)
 			shouldResetCamera = true
 		case modifyStageVar_camera_tensionhigh:
-			s.stageCamera.tensionhigh = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.tensionhigh = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_tensionlow:
-			s.stageCamera.tensionlow = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.tensionlow = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_tension:
-			s.stageCamera.tension = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.tension = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_tensionvel:
 			s.stageCamera.tensionvel = exp[0].evalF(c)
 			shouldResetCamera = true
 		case modifyStageVar_camera_cuthigh:
-			s.stageCamera.cuthigh = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.cuthigh = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_cutlow:
-			s.stageCamera.cutlow = int32(exp[0].evalF(c) * c.localscl / s.localscl)
+			s.stageCamera.cutlow = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_camera_startzoom:
 			s.stageCamera.startzoom = exp[0].evalF(c)
@@ -12638,13 +12458,13 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 			shouldResetCamera = true
 		// PlayerInfo group
 		case modifyStageVar_playerinfo_leftbound:
-			s.leftbound = exp[0].evalF(c) * c.localscl / s.localscl
+			s.leftbound = exp[0].evalF(c) * scaleratio
 		case modifyStageVar_playerinfo_rightbound:
-			s.rightbound = exp[0].evalF(c) * c.localscl / s.localscl
+			s.rightbound = exp[0].evalF(c) * scaleratio
 		case modifyStageVar_playerinfo_topbound:
-			s.topbound = exp[0].evalF(c) * c.localscl / s.localscl
+			s.topbound = exp[0].evalF(c) * scaleratio
 		case modifyStageVar_playerinfo_botbound:
-			s.botbound = exp[0].evalF(c) * c.localscl / s.localscl
+			s.botbound = exp[0].evalF(c) * scaleratio
 		// Scaling group
 		case modifyStageVar_scaling_topz:
 			if s.mugenver[0] != 1 { // mugen 1.0+ removed support for topz
@@ -12664,14 +12484,14 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 			}
 		// Bound group
 		case modifyStageVar_bound_screenleft:
-			s.screenleft = exp[0].evalI(c)
+			s.screenleft = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_bound_screenright:
-			s.screenright = exp[0].evalI(c)
+			s.screenright = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		// StageInfo group
 		case modifyStageVar_stageinfo_zoffset:
-			s.stageCamera.zoffset = exp[0].evalI(c)
+			s.stageCamera.zoffset = int32(exp[0].evalF(c) * scaleratio)
 			shouldResetCamera = true
 		case modifyStageVar_stageinfo_zoffsetlink:
 			s.zoffsetlink = exp[0].evalI(c)
@@ -12700,18 +12520,28 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 		case modifyStageVar_shadow_projection:
 			s.sdw.projection = Projection(exp[0].evalI(c))
 		case modifyStageVar_shadow_fade_range:
-			s.sdw.fadeend = exp[0].evalI(c)
-			s.sdw.fadebgn = exp[1].evalI(c)
+			s.sdw.fadeend = int32(exp[0].evalF(c) * scaleratio)
+			if len(exp) > 1 {
+				s.sdw.fadebgn = int32(exp[1].evalF(c) * scaleratio)
+			}
 		case modifyStageVar_shadow_xshear:
 			s.sdw.xshear = exp[0].evalF(c)
 		case modifyStageVar_shadow_offset:
-			s.sdw.offset[0] = exp[0].evalF(c)
-			s.sdw.offset[1] = exp[1].evalF(c)
+			s.sdw.offset[0] = exp[0].evalF(c) * scaleratio
+			if len(exp) > 1 {
+				s.sdw.offset[1] = exp[1].evalF(c) * scaleratio
+			}
 		case modifyStageVar_shadow_window:
-			s.sdw.window[0] = exp[0].evalF(c)
-			s.sdw.window[1] = exp[1].evalF(c)
-			s.sdw.window[2] = exp[2].evalF(c)
-			s.sdw.window[3] = exp[3].evalF(c)
+			s.sdw.window[0] = exp[0].evalF(c) * scaleratio
+			if len(exp) > 1 {
+				s.sdw.window[1] = exp[1].evalF(c) * scaleratio
+			}
+			if len(exp) > 2 {
+				s.sdw.window[2] = exp[2].evalF(c) * scaleratio
+			}
+			if len(exp) > 3 {
+				s.sdw.window[3] = exp[3].evalF(c) * scaleratio
+			}
 		// Reflection group
 		case modifyStageVar_reflection_intensity:
 			s.reflection.intensity = Clamp(exp[0].evalI(c), 0, 255)
@@ -12730,18 +12560,31 @@ func (sc modifyStageVar) Run(c *Char, _ []int32) bool {
 		case modifyStageVar_reflection_xshear:
 			s.reflection.xshear = exp[0].evalF(c)
 		case modifyStageVar_reflection_color:
-			r := Clamp(exp[0].evalI(c), 0, 255)
-			g := Clamp(exp[1].evalI(c), 0, 255)
-			b := Clamp(exp[2].evalI(c), 0, 255)
+			var r, g, b int32
+			r = Clamp(exp[0].evalI(c), 0, 255)
+			if len(exp) > 1 {
+				g = Clamp(exp[1].evalI(c), 0, 255)
+			}
+			if len(exp) > 2 {
+				b = Clamp(exp[2].evalI(c), 0, 255)
+			}
 			s.reflection.color = uint32(r<<16 | g<<8 | b)
 		case modifyStageVar_reflection_offset:
 			s.reflection.offset[0] = exp[0].evalF(c)
-			s.reflection.offset[1] = exp[1].evalF(c)
+			if len(exp) > 1 {
+				s.reflection.offset[1] = exp[1].evalF(c) * scaleratio
+			}
 		case modifyStageVar_reflection_window:
-			s.reflection.window[0] = exp[0].evalF(c)
-			s.reflection.window[1] = exp[1].evalF(c)
-			s.reflection.window[2] = exp[2].evalF(c)
-			s.reflection.window[3] = exp[3].evalF(c)
+			s.reflection.window[0] = exp[0].evalF(c) * scaleratio
+			if len(exp) > 1 {
+				s.reflection.window[1] = exp[1].evalF(c) * scaleratio
+			}
+			if len(exp) > 2 {
+				s.reflection.window[2] = exp[2].evalF(c) * scaleratio
+			}
+			if len(exp) > 3 {
+				s.reflection.window[3] = exp[3].evalF(c) * scaleratio
+			}
 		}
 		return true
 	})
@@ -12793,8 +12636,13 @@ const (
 )
 
 func (sc height) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), height_redirectid, "Height")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := (320 / c.localcoord) / (320 / crun.localcoord)
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case height_value:
@@ -12804,13 +12652,6 @@ func (sc height) Run(c *Char, _ []int32) bool {
 				v2 = exp[1].evalF(c)
 			}
 			crun.setHeight(v1*redirscale, v2*redirscale)
-		case height_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = (320 / c.localcoord) / (320 / crun.localcoord)
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12827,8 +12668,13 @@ const (
 )
 
 func (sc depth) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), depth_redirectid, "Depth")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := (320 / c.localcoord) / (320 / crun.localcoord)
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case depth_player:
@@ -12853,13 +12699,6 @@ func (sc depth) Run(c *Char, _ []int32) bool {
 			}
 			crun.setDepth(v1*redirscale, v2*redirscale)
 			crun.setDepthEdge(v1*redirscale, v2*redirscale)
-		case depth_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = (320 / c.localcoord) / (320 / crun.localcoord)
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -12885,12 +12724,17 @@ const (
 	modifyPlayer_hitpausetime
 	modifyPlayer_pausemovetime
 	modifyPlayer_supermovetime
+	modifyPlayer_unhittabletime
 	modifyPlayer_redirectid
 )
 
 // TODO: Undo all effects if a cached character is loaded
 func (sc modifyPlayer) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyPlayer_redirectid, "ModifyPlayer")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case modifyPlayer_lifemax:
@@ -12969,12 +12813,8 @@ func (sc modifyPlayer) Run(c *Char, _ []int32) bool {
 			crun.pauseMovetime = Max(0, exp[0].evalI(c))
 		case modifyPlayer_supermovetime:
 			crun.superMovetime = Max(0, exp[0].evalI(c))
-		case modifyPlayer_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
+		case modifyPlayer_unhittabletime:
+			crun.unhittableTime = Max(0, exp[0].evalI(c))
 		}
 		return true
 	})
@@ -13030,8 +12870,13 @@ const (
 )
 
 func (sc getHitVarSet) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), getHitVarSet_redirectid, "GetHitVarSet")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case getHitVarSet_airtype:
@@ -13116,13 +12961,6 @@ func (sc getHitVarSet) Run(c *Char, _ []int32) bool {
 			crun.ghv.yaccel = exp[0].evalF(c) * redirscale
 		case getHitVarSet_zaccel:
 			crun.ghv.zaccel = exp[0].evalF(c) * redirscale
-		case getHitVarSet_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -13137,19 +12975,17 @@ const (
 )
 
 func (sc groundLevelOffset) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), groundLevelOffset_redirectid, "GroundLevelOffset")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case groundLevelOffset_value:
 			crun.groundLevel = exp[0].evalF(c) * redirscale
-		case groundLevelOffset_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -13164,50 +13000,22 @@ const (
 )
 
 func (sc targetAdd) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), targetAdd_redirectid, "TargetAdd")
+	if crun == nil {
+		return false
+	}
+
 	var pid int32
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case targetAdd_playerid:
 			pid = exp[0].evalI(c)
-		case targetAdd_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
-		}
-		// Check if ID exists
-		if pid > 0 {
-			done := false
-			for i := range sys.chars {
-				for j := range sys.chars[i] {
-					if sys.chars[i][j].id == pid {
-						// Add target to char's "target" list
-						// This function already prevents duplicating targets
-						crun.addTarget(pid)
-						// Add char to target's "hit by" list
-						// Keep juggle points if target already exists
-						jug := crun.gi().data.airjuggle
-						for _, v := range sys.chars[i][j].ghv.hitBy {
-							if v[0] == crun.id {
-								jug = v[1]
-							}
-						}
-						// Remove then readd char to the list with the new juggle points
-						sys.chars[i][j].ghv.dropId(crun.id)
-						sys.chars[i][j].ghv.hitBy = append(sys.chars[i][j].ghv.hitBy, [...]int32{crun.id, jug})
-						done = true
-						break
-					}
-				}
-				if done {
-					break
-				}
-			}
 		}
 		return true
 	})
+
+	crun.targetAddSctrl(pid)
+
 	return false
 }
 
@@ -13220,7 +13028,11 @@ const (
 )
 
 func (sc transformClsn) Run(c *Char, _ []int32) bool {
-	crun := c
+	crun := getRedirectedChar(c, StateControllerBase(sc), transformClsn_redirectid, "TransformClsn")
+	if crun == nil {
+		return false
+	}
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case transformClsn_scale:
@@ -13231,12 +13043,6 @@ func (sc transformClsn) Run(c *Char, _ []int32) bool {
 			crun.updateClsnScale()
 		case transformClsn_angle:
 			crun.clsnAngle += exp[0].evalF(c)
-		case transformClsn_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -13254,8 +13060,13 @@ const (
 )
 
 func (sc transformSprite) Run(c *Char, _ []int32) bool {
-	crun := c
-	var redirscale float32 = 1.0
+	crun := getRedirectedChar(c, StateControllerBase(sc), transformSprite_redirectid, "TransformSprite")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
 		switch paramID {
 		case transformSprite_window:
@@ -13266,13 +13077,6 @@ func (sc transformSprite) Run(c *Char, _ []int32) bool {
 			c.fLength = exp[0].evalF(c)
 		case transformSprite_projection:
 			c.projection = Projection(exp[0].evalI(c))
-		case transformSprite_redirectid:
-			if rid := sys.playerID(exp[0].evalI(c)); rid != nil {
-				crun = rid
-				redirscale = c.localscl / crun.localscl
-			} else {
-				return false
-			}
 		}
 		return true
 	})
@@ -13482,6 +13286,138 @@ func (sc modifyStageBG) Run(c *Char, _ []int32) bool {
 	return false
 }
 
+type modifyShadow StateControllerBase
+
+const (
+	modifyShadow_color byte = iota
+	modifyShadow_intensity
+	modifyShadow_offset
+	modifyShadow_window
+	modifyShadow_xshear
+	modifyShadow_yscale
+	modifyShadow_angle
+	modifyShadow_xangle
+	modifyShadow_yangle
+	modifyShadow_focallength
+	modifyShadow_projection
+	modifyShadow_redirectid
+)
+
+func (sc modifyShadow) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyShadow_redirectid, "ModifyShadow")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
+	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
+		switch paramID {
+		case modifyShadow_color:
+			var r, g, b int32
+			r = Clamp(exp[0].evalI(c), 0, 255)
+			if len(exp) > 1 {
+				g = Clamp(exp[1].evalI(c), 0, 255)
+			}
+			if len(exp) > 2 {
+				b = Clamp(exp[2].evalI(c), 0, 255)
+			}
+			crun.shadowColor = [3]int32{r, g, b}
+		case modifyShadow_intensity:
+			crun.shadowIntensity = Clamp(exp[0].evalI(c), 0, 255)
+		case modifyShadow_offset:
+			crun.shadowOffset[0] = exp[0].evalF(c) * redirscale
+			if len(exp) > 1 {
+				crun.shadowOffset[1] = exp[1].evalF(c) * redirscale
+			}
+		case modifyShadow_window:
+			crun.shadowWindow = [4]float32{exp[0].evalF(c), exp[1].evalF(c), exp[2].evalF(c), exp[3].evalF(c)}
+		case modifyShadow_xshear:
+			crun.shadowXshear = exp[0].evalF(c)
+		case modifyShadow_yscale:
+			crun.shadowYscale = exp[0].evalF(c)
+		case modifyShadow_angle:
+			crun.shadowRot.angle = exp[0].evalF(c)
+		case modifyShadow_xangle:
+			crun.shadowRot.xangle = exp[0].evalF(c)
+		case modifyShadow_yangle:
+			crun.shadowRot.yangle = exp[0].evalF(c)
+		case modifyShadow_focallength:
+			crun.shadowfLength = exp[0].evalF(c)
+		case modifyShadow_projection:
+			crun.shadowProjection = Projection(exp[0].evalI(c))
+		}
+		return true
+	})
+	return false
+}
+
+type modifyReflection StateControllerBase
+
+const (
+	modifyReflection_color byte = iota
+	modifyReflection_intensity
+	modifyReflection_offset
+	modifyReflection_window
+	modifyReflection_xshear
+	modifyReflection_yscale
+	modifyReflection_angle
+	modifyReflection_xangle
+	modifyReflection_yangle
+	modifyReflection_focallength
+	modifyReflection_projection
+	modifyReflection_redirectid
+)
+
+func (sc modifyReflection) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), modifyReflection_redirectid, "ModifyReflection")
+	if crun == nil {
+		return false
+	}
+
+	redirscale := c.localscl / crun.localscl
+
+	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
+		switch paramID {
+		case modifyReflection_color:
+			var r, g, b int32
+			r = Clamp(exp[0].evalI(c), 0, 255)
+			if len(exp) > 1 {
+				g = Clamp(exp[1].evalI(c), 0, 255)
+			}
+			if len(exp) > 2 {
+				b = Clamp(exp[2].evalI(c), 0, 255)
+			}
+			crun.reflectColor = [3]int32{r, g, b}
+		case modifyReflection_intensity:
+			crun.reflectIntensity = Clamp(exp[0].evalI(c), 0, 255)
+		case modifyReflection_offset:
+			crun.reflectOffset[0] = exp[0].evalF(c) * redirscale
+			if len(exp) > 1 {
+				crun.reflectOffset[1] = exp[1].evalF(c) * redirscale
+			}
+		case modifyReflection_window:
+			crun.reflectWindow = [4]float32{exp[0].evalF(c), exp[1].evalF(c), exp[2].evalF(c), exp[3].evalF(c)}
+		case modifyReflection_xshear:
+			crun.reflectXshear = exp[0].evalF(c)
+		case modifyReflection_yscale:
+			crun.reflectYscale = exp[0].evalF(c)
+		case modifyReflection_angle:
+			crun.reflectRot.angle = exp[0].evalF(c)
+		case modifyReflection_xangle:
+			crun.reflectRot.xangle = exp[0].evalF(c)
+		case modifyReflection_yangle:
+			crun.reflectRot.yangle = exp[0].evalF(c)
+		case modifyReflection_focallength:
+			crun.reflectfLength = exp[0].evalF(c)
+		case modifyReflection_projection:
+			crun.reflectProjection = Projection(exp[0].evalI(c))
+		}
+		return true
+	})
+	return false
+}
+
 // StateDef data struct
 type StateBytecode struct {
 	stateType StateType
@@ -13507,19 +13443,32 @@ func newStateBytecode(pn int) *StateBytecode {
 }
 
 func (sb *StateBytecode) init(c *Char) {
+	// StateType
 	if sb.stateType != ST_U {
 		c.ss.changeStateType(sb.stateType)
 	}
+
+	// MoveType
 	if sb.moveType != MT_U {
 		if !c.ss.storeMoveType {
 			c.ss.prevMoveType = c.ss.moveType
 		}
 		c.ss.moveType = sb.moveType
 	}
+	c.ss.storeMoveType = false
+
+	// Physics
 	if sb.physics != ST_U {
 		c.ss.physics = sb.physics
 	}
-	c.ss.storeMoveType = false
+
+	// Reset juggle points
+	// Mugen doesn't do this, but since most people forget it the engine should handle it
+	if c.ss.moveType != MT_A {
+		c.juggle = 0
+	}
+
+	// Rest of StateDef
 	sys.workingState = sb
 	sb.stateDef.Run(c)
 }

@@ -2135,6 +2135,45 @@ function start.f_selectScreen()
 			end
 		end
 	end
+
+	--cell drawList
+	local drawList = {}
+
+	for row = 1, motif.select_info.rows do
+		for col = 1, motif.select_info.columns do
+			local t = start.t_grid[row][col]
+			if t.skip ~= 1 then
+				--draw cell background
+				if (t.char ~= nil and (t.hidden == 0 or t.hidden == 3)) or motif.select_info.showemptyboxes == 1 then
+					table.insert(drawList, {
+						anim = motif.select_info.cell_bg_data,
+						x = motif.select_info.pos[1] + t.x,
+						y = motif.select_info.pos[2] + t.y,
+						facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_bg_facing
+					})
+				end
+				--draw random cell
+				if t.char == 'randomselect' or t.hidden == 3 then
+					table.insert(drawList, {
+						anim = motif.select_info.cell_random_data,
+						x = motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
+						y = motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
+						facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_random_facing
+					})
+				end
+				--draw face cell
+				if t.char_ref ~= nil and t.hidden == 0 then
+					table.insert(drawList, {
+						anim = start.f_getCharData(t.char_ref).cell_data,
+						x = motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
+						y = motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
+						facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.portrait_facing
+					})
+				end
+			end
+		end
+	end
+	
 	while not selScreenEnd do
 		counter = counter + 1
 		--credits
@@ -2156,39 +2195,7 @@ function start.f_selectScreen()
 			end
 		end
 		--draw cell art
-		for row = 1, motif.select_info.rows do
-			for col = 1, motif.select_info.columns do
-				local t = start.t_grid[row][col]
-				if t.skip ~= 1 then
-					--draw cell background
-					if (t.char ~= nil and (t.hidden == 0 or t.hidden == 3)) or motif.select_info.showemptyboxes == 1 then
-						main.f_animPosDraw(
-							motif.select_info.cell_bg_data,
-							motif.select_info.pos[1] + t.x,
-							motif.select_info.pos[2] + t.y,
-							(motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_bg_facing)
-						)
-					end
-					--draw random cell
-					if t.char == 'randomselect' or t.hidden == 3 then
-						main.f_animPosDraw(
-							motif.select_info.cell_random_data,
-							motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
-							motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
-							(motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_random_facing)
-						)
-					--draw face cell
-					elseif t.char ~= nil and t.hidden == 0 then
-						main.f_animPosDraw(
-							start.f_getCharData(t.char_ref).cell_data,
-							motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
-							motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
-							(motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.portrait_facing)
-						)
-					end
-				end
-			end
-		end
+		batchDraw(drawList)
 		--draw done cursors
 		for side = 1, 2 do
 			for _, v in pairs(start.p[side].t_selected) do
@@ -4290,7 +4297,7 @@ function start.f_stageMusic()
 		didLoadStageBGM = false
 	end
 	-- bgmusic / bgmusic.roundX / bgmusic.final
-	if (stagetime() > 0 and not didLoadStageBGM) then
+	if (stagetime() > 0 and not didLoadStageBGM and roundstate() <= 2) then
 		-- only if the round is not restarted
 		if start.bgmround ~= roundno() then
 			start.bgmround = roundno()

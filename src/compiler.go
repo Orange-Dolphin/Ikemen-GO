@@ -357,6 +357,7 @@ var triggerMap = map[string]int{
 	"animelemvar":        1,
 	"animlength":         1,
 	"animplayerno":       1,
+	"spriteplayerno":     1,
 	"atan2":              1,
 	"attack":             1,
 	"bgmvar":             1,
@@ -1735,6 +1736,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		case "volume":
 			opct = OC_ex2_
 			opc = OC_ex2_bgmvar_volume
+		default:
+			return bvNone(), Error("Invalid BGMVar argument: " + vname)
 		}
 		if isStr {
 			if err := nameSub(opct, opc); err != nil {
@@ -2284,6 +2287,12 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			opc = OC_ex2_explodvar_anim
 		case "animelem":
 			opc = OC_ex2_explodvar_animelem
+		case "animelemtime":
+			opc = OC_ex2_explodvar_animelemtime
+		case "animplayerno":
+			opc = OC_ex2_explodvar_animplayerno
+		case "spriteplayerno":
+			opc = OC_ex2_explodvar_spriteplayerno
 		case "bindtime":
 			opc = OC_ex2_explodvar_bindtime
 		case "drawpal":
@@ -2793,7 +2802,7 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 	case "ishometeam":
 		out.append(OC_ex_, OC_ex_ishometeam)
 	case "isclsnproxy":
-		out.append(OC_ex2_, OC_ex2_index)
+		out.append(OC_ex2_, OC_ex2_isclsnproxy)
 	case "index":
 		out.append(OC_ex2_, OC_ex2_index)
 	case "layerno":
@@ -3530,14 +3539,18 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		}
 		isStr := false
 		switch svname {
-		case "info.name":
-			opc = OC_const_stagevar_info_name
+		case "info.author":
+			opc = OC_const_stagevar_info_author
 			isStr = true
 		case "info.displayname":
 			opc = OC_const_stagevar_info_displayname
 			isStr = true
-		case "info.author":
-			opc = OC_const_stagevar_info_author
+		case "info.ikemenversion":
+			opc = OC_const_stagevar_info_ikemenversion
+		case "info.mugenversion":
+			opc = OC_const_stagevar_info_mugenversion
+		case "info.name":
+			opc = OC_const_stagevar_info_name
 			isStr = true
 		case "camera.boundleft":
 			opc = OC_const_stagevar_camera_boundleft
@@ -4190,6 +4203,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		out.append(OC_ex_, OC_ex_animlength)
 	case "animplayerno":
 		out.append(OC_ex_, OC_ex_animplayerno)
+	case "spriteplayerno":
+		out.append(OC_ex_, OC_ex_spriteplayerno)
 	case "attack":
 		out.append(OC_ex_, OC_ex_attack)
 	case "combocount":
@@ -5508,24 +5523,53 @@ func (c *Compiler) stateParam(is IniSection, name string, mandatory bool, f func
 	return nil
 }
 
-// Returns FX prefix from a data string, removes prefix from the data
+// Returns FX prefix from a data string while removing prefix from the data
 func (c *Compiler) getDataPrefix(data *string, ffxDefault bool) (prefix string) {
 	if len(*data) > 1 {
-		// Check prefix
-		re := regexp.MustCompile(sys.ffxRegexp)
-		prefix = re.FindString(strings.ToLower(*data))
-		if prefix != "" {
-			// Remove prefix from data string
-			re = regexp.MustCompile("[^a-z]")
-			m := re.Split(strings.ToLower(*data)[len(prefix):], -1)
-			if _, ok := triggerMap[m[0]]; ok || m[0] == "" {
-				*data = (*data)[len(prefix):]
+		str := strings.ToLower(*data)
+
+		// Find the longest matching valid prefix at the start of the string
+		// The length check allows "FFF" to be used even though "F" is reserved
+		longestMatch := ""
+		// Check "F" and "S" reserved prefixes
+		if strings.HasPrefix(str, "f") {
+			longestMatch = "f"
+		}
+		if strings.HasPrefix(str, "s") {
+			longestMatch = "s"
+		}
+		// Check common FX prefixes currently in use
+		for p := range sys.ffx {
+			if strings.HasPrefix(str, p) && len(p) > len(longestMatch) {
+				longestMatch = p
+			}
+		}
+
+		if longestMatch != "" {
+			// Get the substring after the matched prefix
+			rest := str[len(longestMatch):]
+
+			// Split by any sequence of non-letter characters to isolate tokens
+			re := regexp.MustCompile("[^a-z]+")
+			tokens := re.Split(rest, -1)
+
+			nextToken := ""
+			if len(tokens) > 0 {
+				nextToken = tokens[0]
+			}
+
+			// Remove prefix only if next token is empty or a known trigger
+			if nextToken == "" || triggerMap[nextToken] != 0 {
+				prefix = longestMatch
+				*data = (*data)[len(longestMatch):]
 			}
 		}
 	}
+
 	if ffxDefault && prefix == "" {
 		prefix = "f"
 	}
+
 	return
 }
 
@@ -7324,48 +7368,17 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 				info = false
 				var ok bool
 				var str string
+				// Clear then read MugenVersion
 				sys.cgi[pn].mugenver = [2]uint16{}
+				sys.cgi[pn].mugenverF = 0
 				if str, ok = is["mugenversion"]; ok {
-					for i, s := range SplitAndTrim(str, ".") {
-						if i >= len(sys.cgi[pn].mugenver) {
-							break
-						}
-						if v, err := strconv.ParseUint(s, 10, 16); err == nil {
-							sys.cgi[pn].mugenver[i] = uint16(v)
-						} else {
-							sys.cgi[pn].mugenver[0] = 0
-							sys.cgi[pn].mugenver[1] = 0
-							break
-						}
-					}
+					sys.cgi[pn].mugenver, sys.cgi[pn].mugenverF = parseMugenVersion(str)
 				}
-				// Clear previous character's version
+				// Clear then read IkemenVersion
 				sys.cgi[pn].ikemenver = [3]uint16{}
 				sys.cgi[pn].ikemenverF = 0
 				if str, ok = is["ikemenversion"]; ok {
-					for i, s := range SplitAndTrim(str, ".") {
-						if i >= len(sys.cgi[pn].ikemenver) {
-							break
-						}
-						if v, err := strconv.ParseUint(s, 10, 16); err == nil {
-							sys.cgi[pn].ikemenver[i] = uint16(v)
-						} else {
-							break
-						}
-					}
-					// Convert into a float for triggers
-					// TODO: Same thing for stages etc
-					re := regexp.MustCompile(`[^0-9.]`)
-					str = re.ReplaceAllString(str, "")
-					// Keep only the first decimal point
-					parts := strings.Split(str, ".")
-					if len(parts) > 1 {
-						str = parts[0] + "." + strings.Join(parts[1:], "")
-					}
-					// Convert clean string to float
-					if result, err := strconv.ParseFloat(str, 32); err == nil {
-						sys.cgi[pn].ikemenverF = float32(result)
-					}
+					sys.cgi[pn].ikemenver, sys.cgi[pn].ikemenverF = parseIkemenVersion(str)
 				}
 				// Ikemen characters adopt Mugen 1.1 version as a safeguard
 				if sys.cgi[pn].ikemenver[0] != 0 || sys.cgi[pn].ikemenver[1] != 0 {
