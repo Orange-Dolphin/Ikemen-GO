@@ -2886,6 +2886,7 @@ function start.f_selectMenu(side, cmd, player, member, selectState)
 						end
 					end
 					animUpdate(start.p[side].t_selTemp[member].anim_data)
+					animUpdate(start.p[side].t_selTemp[member].face2_data)
 					
 					main.f_cmdBufReset(cmd)
 					selectState = 1
