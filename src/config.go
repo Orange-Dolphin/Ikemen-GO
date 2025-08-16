@@ -137,6 +137,8 @@ type Config struct {
 		ScreenshotFolder    string   `ini:"ScreenshotFolder"`
 		TrainingChar        string   `ini:"TrainingChar"`
 		GamepadMappings     string   `ini:"GamepadMappings"`
+		PreloadPalette		bool	 `ini:"PreloadPalette"`
+
 	} `ini:"Config"`
 	Debug struct {
 		AllowDebugMode    bool    `ini:"AllowDebugMode"`

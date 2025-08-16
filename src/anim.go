@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -1509,6 +1510,57 @@ func NewAnim(sff *Sff, action string) *Anim {
 		return nil
 	}
 	return a
+}
+
+func CopyAnim(a *Anim) (*Anim) {
+		//Copy information
+		uniqueSff := newSff()
+		uniqueSff.header = a.anim.sff.header
+		uniqueSff.palList.palettes = a.anim.sff.palList.palettes
+		x:= 0
+		uniqueSff.palList.paletteMap = nil
+		for x < len(a.anim.sff.palList.paletteMap) {//Copy each value from the palette map individually, without doing this, different sides/members of the same character will share palettes.
+			uniqueSff.palList.paletteMap = append(uniqueSff.palList.paletteMap, x)
+			x = x + 1
+		}
+		uniqueSff.palList.PalTable = a.anim.sff.palList.PalTable
+		uniqueSff.palList.numcols = a.anim.sff.palList.numcols
+		uniqueSff.palList.PalTex = a.anim.sff.palList.PalTex
+		frameAnims := ""
+		x = 0
+		for x < len(a.anim.frames) {
+			frameAnims = frameAnims + fmt.Sprint(a.anim.frames[x].Group) + "," + fmt.Sprint(a.anim.frames[x].Number) + "," + fmt.Sprint(a.anim.frames[x].Xoffset) + "," + fmt.Sprint(a.anim.frames[x].Yoffset) + "," + fmt.Sprint(a.anim.frames[x].Time) + "\n"
+			x = x + 1
+		}
+		
+		//Create animation and copy animation data
+		newAnim := NewAnim(uniqueSff, frameAnims)
+		newAnim.window = a.window
+		newAnim.x = a.x
+		newAnim.y = a.y
+		newAnim.xscl = a.xscl
+		newAnim.yscl = a.yscl
+		newAnim.palfx = a.palfx
+		
+		//Information to match the current frame in the animation
+		newAnim.anim.looptime = a.anim.looptime
+		newAnim.anim.loopstart = a.anim.loopstart
+		newAnim.anim.curtime = a.anim.curtime
+		newAnim.anim.totaltime = a.anim.totaltime
+		newAnim.anim.frames = a.anim.frames
+		newAnim.anim.interpolate_blend_srcalpha = a.anim.interpolate_blend_srcalpha
+		newAnim.anim.interpolate_scale = a.anim.interpolate_scale
+		for _, c := range a.anim.frames {
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}] = newSprite()
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Pal
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Tex
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].palidx
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[1]
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[1]
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Offset[0]
+			newAnim.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0] = a.anim.sff.sprites[[...]int16{c.Group, c.Number}].Size[0]
+		}
+		return newAnim
 }
 
 func (a *Anim) SetPos(x, y float32) {
