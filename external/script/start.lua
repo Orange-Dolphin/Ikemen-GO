@@ -2878,15 +2878,17 @@ function start.f_selectMenu(side, cmd, player, member, selectState)
 					if start.p[side].t_selTemp[member].anim_data ~= nil then
 						if (motif.select_info['p' .. side .. '_member' .. member .. '_face_pal'] ~= nil and motif.select_info['p' .. side .. '_member' .. member .. '_face_pal'] >= 1) or (motif.select_info['p' .. side .. '_face_pal'] ~= nil and motif.select_info['p' .. side .. '_face_pal'] >= 1)  then
 							start.p[side].t_selTemp[member].anim_data = loadThePalettes(start.p[side].t_selTemp[member].anim_data, start.p[side].t_selTemp[member].ref, start.p[side].t_selTemp[member].pal)
+							animUpdate(start.p[side].t_selTemp[member].anim_data)
 						end
 					end
 					if start.p[side].t_selTemp[member].face2_data ~= nil then
 						if (motif.select_info['p' .. side .. '_member' .. member .. '_face2_pal'] ~= nil and motif.select_info['p' .. side .. '_member' .. member .. '_face2_pal'] >= 1) or (motif.select_info['p' .. side .. '_face2_pal'] ~= nil and motif.select_info['p' .. side .. '_face2_pal'] >= 1)  then
 							start.p[side].t_selTemp[member].face2_data = loadThePalettes(start.p[side].t_selTemp[member].face2_data, start.p[side].t_selTemp[member].ref, start.p[side].t_selTemp[member].pal)
+							animUpdate(start.p[side].t_selTemp[member].face2_data)
 						end
 					end
-					animUpdate(start.p[side].t_selTemp[member].anim_data)
-					animUpdate(start.p[side].t_selTemp[member].face2_data)
+					
+					
 					
 					main.f_cmdBufReset(cmd)
 					selectState = 1
