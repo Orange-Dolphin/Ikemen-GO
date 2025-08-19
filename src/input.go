@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"net"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -2384,22 +2383,17 @@ func (cl *CommandList) CopyList(src CommandList) {
 	}
 }
 
-func withoutTilde(keys []CommandKey) []CommandKey {
-	if len(keys) == 0 {
-		return keys
+func withoutTildeKey(k CommandKey) CommandKey {
+	if k >= CK_rU && k <= CK_rN {
+		return k - (CK_rU - CK_U)
+	} else if k >= CK_Us && k <= CK_DRs {
+		return k - (CK_Us - CK_U)
+	} else if k >= CK_rUs && k <= CK_rNs {
+		return k - (CK_rUs - CK_U)
+	} else if k >= CK_ra && k <= CK_rm {
+		return k - (CK_ra - CK_a)
 	}
-	newKeys := make([]CommandKey, len(keys))
-	copy(newKeys, keys)
-	for i, k := range newKeys {
-		if k >= CK_rU && k <= CK_rN {
-			newKeys[i] = k - (CK_rU - CK_U)
-		} else if k >= CK_rUs && k <= CK_rNs {
-			newKeys[i] = k - (CK_rUs - CK_Us)
-		} else if k >= CK_ra && k <= CK_rm {
-			newKeys[i] = k - (CK_ra - CK_a)
-		}
-	}
-	return newKeys
+	return k
 }
 
 func autoGenerateExtendedCommand(originalCmd *Command) *Command {
@@ -2414,26 +2408,27 @@ func autoGenerateExtendedCommand(originalCmd *Command) *Command {
 		}
 	}
 
-	// 繰り返しパターンを抽出
-	firstInput := originalCmd.cmd[0].key
-	var repeatPattern []cmdElem
-	repeatPos := -1
-
-	// 最初の方向キー入力を探す
-	isFirstDirection := false
-	for _, k := range firstInput {
-		if k.IsDirectionPress() || k.IsDirectionRelease() {
-			isFirstDirection = true
-			break
-		}
-	}
-	if !isFirstDirection {
+	if len(originalCmd.cmd[0].key) == 0 {
 		return nil
 	}
 
+	// 最初の方向キー入力を探す
+	firstInputKey := originalCmd.cmd[0].key[0]
+
+	var repeatPattern []cmdElem
+	repeatPos := -1
+
+	// 2番目の要素からループを開始し、最初のキーと同じキーを含む要素を探す
 	for i := 1; i < len(originalCmd.cmd); i++ {
-		// `~` や `$` を無視して純粋なキーが同じか比較
-		if reflect.DeepEqual(withoutTilde(originalCmd.cmd[i].key), withoutTilde(firstInput)) {
+		found := false
+		for _, k := range originalCmd.cmd[i].key {
+			// `~` や `$` を無視して純粋なキーが同じか比較
+			if withoutTildeKey(k) == withoutTildeKey(firstInputKey) {
+				found = true
+				break
+			}
+		}
+		if found {
 			repeatPos = i
 			// 最初の入力から、それが再度現れる直前までをパターンとする
 			repeatPattern = originalCmd.cmd[0:repeatPos]
@@ -2453,22 +2448,11 @@ func autoGenerateExtendedCommand(originalCmd *Command) *Command {
 		modifiedPattern[i].key = newKeys
 	}
 
-	// 2番目以降の方向キー入力を$Nに置き換える
+	// 2番目以降のキー入力を$Nに置き換える
 	if len(modifiedPattern) > 1 {
 		for i := 1; i < len(modifiedPattern); i++ {
 			elem := &modifiedPattern[i]
-			isDirection := false
-			for _, k := range elem.key {
-				// IsDirectionPress()とIsDirectionRelease()で方向キーかどうかを判定
-				if k.IsDirectionPress() || k.IsDirectionRelease() {
-					isDirection = true
-					break
-				}
-			}
-			// 方向キー入力であれば、$N (CK_Ns) に置き換える
-			if isDirection {
-				elem.key = []CommandKey{CK_Ns}
-			}
+			elem.key = []CommandKey{CK_Ns}
 		}
 	}
 

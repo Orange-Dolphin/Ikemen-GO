@@ -214,7 +214,7 @@ options.t_itemname = {
 			modifyGameOption('Video.ExternalShaders', {})
 			modifyGameOption('Video.WindowScaleMode', true)
 			modifyGameOption('Video.KeepAspect', true)
-			modifyGameOption('Video.XyTruncate', true)
+			modifyGameOption('Video.XyTruncate', false)
 			modifyGameOption('Video.EnableModel', true)
 			modifyGameOption('Video.EnableModelShadow', true)
 			--modifyGameOption('Sound.SampleRate', 44100)

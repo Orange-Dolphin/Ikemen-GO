@@ -1308,7 +1308,7 @@ end
 --return true if slot is selected, update start.t_grid
 function start.f_slotSelected(cell, side, cmd, player, x, y)
 	if cmd == nil then
-		return false
+		return false, false
 	end
 	if #main.t_selGrid[cell].chars > 0 then
 		-- select.def 'slot' parameter special keys detection
@@ -1366,14 +1366,14 @@ function start.f_slotSelected(cell, side, cmd, player, x, y)
 						start.t_grid[y + 1][x + 1].char_ref = start.f_selGrid(cell).char_ref
 						start.t_grid[y + 1][x + 1].hidden = start.f_selGrid(cell).hidden
 						start.t_grid[y + 1][x + 1].skip = start.f_selGrid(cell).skip
-						return cmdType == 'select'
+						return cmdType == 'select', (main.t_selGrid[cell].slot ~= original_slot)
 					end
 				end
 			end
 		end
 	end
 	-- returns true on pressed key if current slot is not blocked by TeamDuplicates feature
-	return main.f_btnPalNo(cmd) > 0 and (not t_reservedChars[side][start.t_grid[y + 1][x + 1].char_ref] or start.t_grid[start.c[player].selY + 1][start.c[player].selX + 1].char == 'randomselect')
+	return main.f_btnPalNo(cmd) > 0 and (not t_reservedChars[side][start.t_grid[y + 1][x + 1].char_ref] or start.t_grid[start.c[player].selY + 1][start.c[player].selX + 1].char == 'randomselect'),false
 end
 
 --generate start.t_grid table, assign row and cell to main.t_selChars
@@ -2089,6 +2089,50 @@ if main.t_sort.select_info.teammenu == nil then
 	main.t_sort.select_info.teammenu = {'single', 'simul', 'turns'}
 end
 
+function start.updateDrawList()
+    local drawList = {}
+
+    for row = 1, motif.select_info.rows do
+        for col = 1, motif.select_info.columns do
+            local cellIndex = (row - 1) * motif.select_info.columns + col
+            local t = start.t_grid[row][col]
+
+            if t.skip ~= 1 then
+                local charData = start.f_selGrid(cellIndex)
+
+                if (charData and charData.char ~= nil and (charData.hidden == 0 or charData.hidden == 3)) or motif.select_info.showemptyboxes == 1 then
+                    table.insert(drawList, {
+                        anim = motif.select_info.cell_bg_data,
+                        x = motif.select_info.pos[1] + t.x,
+                        y = motif.select_info.pos[2] + t.y,
+                        facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_bg_facing or 1
+                    })
+                end
+
+                if charData and (charData.char == 'randomselect' or charData.hidden == 3) then
+                    table.insert(drawList, {
+                        anim = motif.select_info.cell_random_data,
+                        x = motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
+                        y = motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
+                        facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_random_facing or 1
+                    })
+                end
+                
+                if charData and charData.char_ref ~= nil and charData.hidden == 0 then
+                    table.insert(drawList, {
+                        anim = charData.cell_data,
+                        x = motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
+                        y = motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
+                        facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.portrait_facing or 1
+                    })
+                end
+            end
+        end
+    end
+
+    return drawList
+end
+
 function start.f_selectScreen()
 	if (not main.selectMenu[1] and not main.selectMenu[2]) or selScreenEnd then
 		return true
@@ -2148,44 +2192,9 @@ function start.f_selectScreen()
 		end
 	end
 
-	--cell drawList
-	local drawList = {}
+	local staticDrawList = start.updateDrawList()
+	local needUpdateDrawList = false
 
-	for row = 1, motif.select_info.rows do
-		for col = 1, motif.select_info.columns do
-			local t = start.t_grid[row][col]
-			if t.skip ~= 1 then
-				--draw cell background
-				if (t.char ~= nil and (t.hidden == 0 or t.hidden == 3)) or motif.select_info.showemptyboxes == 1 then
-					table.insert(drawList, {
-						anim = motif.select_info.cell_bg_data,
-						x = motif.select_info.pos[1] + t.x,
-						y = motif.select_info.pos[2] + t.y,
-						facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_bg_facing
-					})
-				end
-				--draw random cell
-				if t.char == 'randomselect' or t.hidden == 3 then
-					table.insert(drawList, {
-						anim = motif.select_info.cell_random_data,
-						x = motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
-						y = motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
-						facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.cell_random_facing
-					})
-				end
-				--draw face cell
-				if t.char_ref ~= nil and t.hidden == 0 then
-					table.insert(drawList, {
-						anim = start.f_getCharData(t.char_ref).cell_data,
-						x = motif.select_info.pos[1] + t.x + motif.select_info.portrait_offset[1],
-						y = motif.select_info.pos[2] + t.y + motif.select_info.portrait_offset[2],
-						facing = motif.select_info['cell_' .. col .. '_' .. row .. '_facing'] or motif.select_info.portrait_facing
-					})
-				end
-			end
-		end
-	end
-	
 	while not selScreenEnd do
 		counter = counter + 1
 		--credits
@@ -2194,6 +2203,7 @@ function start.f_selectScreen()
 			main.credits = main.credits + 1
 			resetKey()
 		end
+
 		--draw clearcolor
 		clearColor(motif.selectbgdef.bgclearcolor[1], motif.selectbgdef.bgclearcolor[2], motif.selectbgdef.bgclearcolor[3])
 		--draw layerno = 0 backgrounds
@@ -2207,7 +2217,14 @@ function start.f_selectScreen()
 			end
 		end
 		--draw cell art
-		batchDraw(drawList)
+
+
+
+    if needUpdateDrawList then
+        staticDrawList = start.updateDrawList()
+        needUpdateDrawList = false 
+    end
+	batchDraw(staticDrawList)
 		--draw done cursors
 		for side = 1, 2 do
 			for _, v in pairs(start.p[side].t_selected) do
@@ -2247,7 +2264,7 @@ function start.f_selectScreen()
 						member = k
 					end
 					--member selection
-					v.selectState = start.f_selectMenu(side, v.cmd, v.player, member, v.selectState)
+					v.selectState, needUpdateDrawList = start.f_selectMenu(side, v.cmd, v.player, member, v.selectState)
 					--draw active cursor
 					if side == 2 and motif.select_info.p2_cursor_blink == 1 then
 						local sameCell = false
@@ -2745,6 +2762,7 @@ end
 --; SELECT MENU
 --;===========================================================
 function start.f_selectMenu(side, cmd, player, member, selectState)
+	local needUpdateDrawList = false
 	--predefined selection
 	if main.forceChar[side] ~= nil then
 		local t = {}
@@ -2801,7 +2819,8 @@ function start.f_selectMenu(side, cmd, player, member, selectState)
 				})
 			else
 				local updateAnim = false
-				local slotSelected = start.f_slotSelected(start.c[player].cell + 1, side, cmd, player, start.c[player].selX, start.c[player].selY)
+				local slotSelected,slotChanged = start.f_slotSelected(start.c[player].cell + 1, side, cmd, player, start.c[player].selX, start.c[player].selY)
+				needUpdateDrawList = slotChanged
 				-- cursor changed position or character change within current slot
 				if start.p[side].t_selTemp[member].cell ~= start.c[player].cell or start.p[side].t_selTemp[member].ref ~= start.c[player].selRef then
 					--start.p[side].t_selTemp[member].pal = 1
@@ -3016,7 +3035,7 @@ function start.f_selectMenu(side, cmd, player, member, selectState)
 			end
 		end
 	end
-	return selectState
+	return selectState, needUpdateDrawList
 end
 
 --;===========================================================
