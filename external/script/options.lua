@@ -214,7 +214,6 @@ options.t_itemname = {
 			modifyGameOption('Video.ExternalShaders', {})
 			modifyGameOption('Video.WindowScaleMode', true)
 			modifyGameOption('Video.KeepAspect', true)
-			modifyGameOption('Video.XyTruncate', false)
 			modifyGameOption('Video.EnableModel', true)
 			modifyGameOption('Video.EnableModelShadow', true)
 			--modifyGameOption('Sound.SampleRate', 44100)
@@ -940,20 +939,6 @@ options.t_itemname = {
 		end
 		return true
 	end,
-	--X/Y Trunccate
-	['xytruncate'] = function(t, item, cursorPosY, moveTxt)
-		if main.f_input(main.t_players, {'$F', '$B', 'pal', 's'}) then
-			sndPlay(motif.files.snd_data, motif.option_info.cursor_move_snd[1], motif.option_info.cursor_move_snd[2])
-			if gameOption('Video.XyTruncate') then
-				modifyGameOption('Video.XyTruncate', false)
-			else
-				modifyGameOption('Video.XyTruncate', true)
-			end
-			t.items[item].vardisplay = options.f_boolDisplay(gameOption('Video.XyTruncate'), motif.option_info.menu_valuename_enabled, motif.option_info.menu_valuename_disabled)
-			options.modified = true
-		end
-		return true
-	end,
 	--Shaders (submenu)
 	['shaders'] = function(t, item, cursorPosY, moveTxt)
 		if main.f_input(main.t_players, {'$F', '$B', 'pal', 's'}) then
@@ -1566,9 +1551,6 @@ options.t_vardisplay = {
 	end,
 	['windowscalemode'] = function()
 		return options.f_boolDisplay(gameOption('Video.WindowScaleMode'), motif.option_info.menu_valuename_enabled, motif.option_info.menu_valuename_disabled)
-	end,
-	['xytruncate'] = function()
-		return options.f_boolDisplay(gameOption('Video.XyTruncate'), motif.option_info.menu_valuename_enabled, motif.option_info.menu_valuename_disabled)
 	end,
 }
 

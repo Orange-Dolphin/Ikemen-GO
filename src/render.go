@@ -407,12 +407,6 @@ func rmInitSub(rp *RenderParams) {
 		rp.y *= -1
 	}
 	rp.y += rp.rcy
-
-	if sys.cfg.Video.XyTruncate {
-		// math.Round only accepts float64s, hence the need for conversion
-		rp.x = float32(int(math.Round(float64(rp.x))))
-		rp.y = float32(int(math.Round(float64(rp.y))))
-	}
 }
 
 func BlendReset() {

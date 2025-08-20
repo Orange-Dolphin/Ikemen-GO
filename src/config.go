@@ -167,7 +167,6 @@ type Config struct {
 		ExternalShaders         []string `ini:"ExternalShaders"`
 		WindowScaleMode         bool     `ini:"WindowScaleMode"`
 		KeepAspect              bool     `ini:"KeepAspect"`
-		XyTruncate              bool     `ini:"XyTruncate"`
 		EnableModel             bool     `ini:"EnableModel"`
 		EnableModelShadow       bool     `ini:"EnableModelShadow"`
 	} `ini:"Video"`

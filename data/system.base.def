@@ -1652,7 +1652,6 @@
 	menu.itemname.menuvideo.resolution.back = "Back"
 	menu.itemname.menuvideo.fullscreen = "Fullscreen"
 	menu.itemname.menuvideo.keepaspect = "Keep Aspect Ratio"
-	menu.itemname.menuvideo.xytruncate = "X/Y Truncate"
 	menu.itemname.menuvideo.windowscalemode = "Bilinear Filtering"
 	menu.itemname.menuvideo.vsync = "VSync"
 	menu.itemname.menuvideo.msaa = "MSAA"
