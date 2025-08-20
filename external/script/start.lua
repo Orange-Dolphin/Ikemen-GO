@@ -865,8 +865,10 @@ function start.f_animGet(ref, side, member, t, subname, prefix, loop, default)
 			elseif k == 5 then
 				usePal = 0
 			end
-			if usePal == 0 then
-				usePal = t['p' .. side .. '_pal'] or 0
+			if subname == face then
+				if usePal == 0 then
+					usePal = t['p' .. side .. '_pal'] or 0
+				end
 			end
 			
 			local a = animGetPreloadedCharData(ref, v[1], v[2], loop)
