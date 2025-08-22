@@ -2932,8 +2932,8 @@ function start.f_selectMenu(side, cmd, player, member, selectState)
 					sndPlay(motif.files.snd_data, motif.select_info.palette_done_snd[1], motif.select_info.palette_done_snd[2])
 					start.p[side].t_selTemp[member].pal = start.f_getCharData(start.p[side].t_selTemp[member].ref).pal[start.p[side].t_selTemp[member].pal]
 					for c, v in ipairs(start.f_getCharData(start.p[side].t_selTemp[member].ref).pal_keymap) do
-						if start.p[side].t_selTemp[member].pal == c then
-							start.p[side].t_selTemp[member].pal = v
+						if start.p[side].t_selTemp[member].pal == v then
+							start.p[side].t_selTemp[member].pal = c
 							break
 						end
 					end
