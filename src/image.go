@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"unsafe"
 )
@@ -1510,9 +1511,9 @@ func loadCharPalettes(sff *Sff, filename string, ref int) (error) {
 					}
 					idx = i
 				}
-				uniquePals[[...]int16{gn_[0], gn_[1]}] = idx
-				sff.palList.SetSource(i, pal)
-				sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] = idx
+				uniquePals[[...]int16{gn_[0], gn_[1]}] = int(gn_[1])
+				sff.palList.SetSource(int(gn_[1]) - 1, pal)
+				sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] = int(gn_[1])
 				sff.palList.numcols[[...]int16{gn_[0], gn_[1]}] = int(gn_[2])
 				if i <= MaxPalNo &&
 					sff.palList.PalTable[[...]int16{1, int16(i + 1)}] == sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] &&
@@ -1606,6 +1607,21 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 	paletteLocation = 0
 	var initialPalLocation int64
 	initialPalLocation = 0
+	
+	coloredPalette := -1
+	
+	if sff.header.Ver0 != 1{
+		for i := 0; i < int(h.NumberOfPalettes); i++ {
+			f.Seek(int64(h.FirstPaletteHeaderOffset)+int64(i*16), 0)
+			var gn_ [3]int16
+			if err := read(gn_[:]); err != nil {
+				return nil, nil, err
+			}
+			if gn_[0] == 1 && gn_[1] == 1 {
+				coloredPalette = i
+			}
+		}
+	}
 	
 	for i := 0; i < len(spriteList); i++ {
 		spriteList[i] = newSprite()
@@ -1746,8 +1762,10 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 						}
 						
 						//Uses palidx as if it were a boolean, used later to know if sprite's palette should be removed in favor of character's selected palette
-						if spriteList[i].palidx != 0 {
+						if spriteList[i].palidx != coloredPalette {
 							spriteList[i].palidx = 1
+						} else {
+							spriteList[i].palidx = 0
 						}
 						
 					}
@@ -1788,6 +1806,7 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 				break
 			}
 		}
+		slices.Sort(selPal)
 	}
 	
 	//Actually load the palettes if set to preload
