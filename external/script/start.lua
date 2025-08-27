@@ -2059,11 +2059,10 @@ function launchFight(data)
 end
 
 function launchStoryboard(path)
-	if path == nil or not main.f_fileExists(path) then
+	if path == nil or path == '' then
 		return false
 	end
-	storyboard.f_storyboard(path)
-	return true
+	return storyboard.f_storyboard(path)
 end
 
 function codeInput(name)

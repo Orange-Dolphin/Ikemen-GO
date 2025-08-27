@@ -1030,7 +1030,7 @@ func (__ *InputBuffer) State2(ck CommandKey) int32 {
 	case CK_rN, CK_rNs:
 		return __.State(CK_rN)
 	case CK_Ns:
-		return Min(Abs(__.Ub), Abs(__.Db), Abs(__.Bb), Abs(__.Fb), Abs(__.ab), Abs(__.bb), Abs(__.cb), Abs(__.xb), Abs(__.yb), Abs(__.zb), Abs(__.wb), Abs(__.db))
+		return Min(Abs(__.Ub), Abs(__.Db), Abs(__.Bb), Abs(__.Fb), Abs(__.ab), Abs(__.bb), Abs(__.cb), Abs(__.xb), Abs(__.yb), Abs(__.zb), Abs(__.wb), Abs(__.db), Abs(__.sb))
 	}
 	return __.State(ck)
 }

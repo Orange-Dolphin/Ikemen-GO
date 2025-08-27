@@ -258,12 +258,7 @@ function main.f_fileExists(file)
 	if file == '' then
 		return false
 	end
-	local f = io.open(file,'r')
-	if f ~= nil then
-		io.close(f)
-		return true
-	end
-	return false
+	return fileExists(file)
 end
 
 --prints "t" table content into "toFile" file

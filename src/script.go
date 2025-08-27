@@ -964,6 +964,11 @@ func systemScriptInit(l *lua.LState) {
 		l.Push(lua.LBool(true))
 		return 1
 	})
+	luaRegister(l, "fileExists", func(l *lua.LState) int {
+		path := strArg(l, 1)
+		l.Push(lua.LBool(FileExist(path) != ""))
+		return 1
+	})
 	luaRegister(l, "fillRect", func(l *lua.LState) int {
 		rect := [4]int32{int32((float32(numArg(l, 1))/sys.luaSpriteScale + float32(sys.gameWidth-320)/2 + sys.luaSpriteOffsetX) * sys.widthScale),
 			int32((float32(numArg(l, 2))/sys.luaSpriteScale + float32(sys.gameHeight-240)) * sys.heightScale),
@@ -1920,6 +1925,16 @@ func systemScriptInit(l *lua.LState) {
 		}
 		sys.loadStart()
 		return 0
+	})
+	luaRegister(l, "loadText", func(l *lua.LState) int {
+		path := strArg(l, 1)
+		content, err := LoadText(path)
+		if err != nil {
+			l.Push(lua.LNil)
+			return 1
+		}
+		l.Push(lua.LString(content))
+		return 1
 	})
 	luaRegister(l, "modifyGameOption", func(l *lua.LState) int {
 		query := strArg(l, 1)

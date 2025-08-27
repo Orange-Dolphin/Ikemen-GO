@@ -7,21 +7,23 @@ storyboard.t_storyboard = {} --stores all parsed storyboards (we parse each of t
 local function f_reset(t)
 	main.f_setStoryboardScale(t.info.localcoord)
 	for _, scene in pairs(t.scene) do
-		if scene.bg_name ~= '' then
+		if scene.bg_name ~= '' and scene.bg then
 			bgReset(scene.bg)
 		end
 		for _, layer in pairs(scene.layer) do
 			if layer.anim_data ~= nil then
 				animReset(layer.anim_data)
 				animUpdate(layer.anim_data)
-				animSetPalFX(layer.anim_data, {
-					time =      layer.palfx_time,
-					add =       layer.palfx_add,
-					mul =       layer.palfx_mul,
-					sinadd =    layer.palfx_sinadd,
-					invertall = layer.palfx_invertall,
-					color =     layer.palfx_color
-				})
+				if layer.palfx_time then
+					animSetPalFX(layer.anim_data, {
+						time =      layer.palfx_time,
+						add =       layer.palfx_add,
+						mul =       layer.palfx_mul,
+						sinadd =    layer.palfx_sinadd,
+						invertall = layer.palfx_invertall,
+						color =     layer.palfx_color
+					})
+				end
 			end
 		end
 	end
@@ -121,7 +123,10 @@ local function f_play(t, attract)
 end
 
 local function f_parse(path)
-	local file = io.open(path, 'r')
+	local content = loadText(path)
+	if content == nil then
+		return nil
+	end
 	local fileDir, fileName = path:match('^(.-)([^/\\]+)$')
 	local t = {info = {localcoord = {320, 240}}}
 	local pos = t
@@ -146,7 +151,7 @@ local function f_parse(path)
 		},
 		scene = {},
 	}
-	for line in file:lines() do
+	for line in content:gmatch("([^\r\n]*)[\r\n]?") do
 		line = line:gsub('%s*;.*$', '')
 		if line:match('^%s*%[.-%s*%]%s*$') then --matched [] group
 			line = line:match('^%s*%[(.-)%s*%]%s*$') --match text between []
@@ -313,7 +318,6 @@ local function f_parse(path)
 			end
 		end
 	end
-	file:close()
 	--;===========================================================
 	--; FIX REFERENCES, LOAD DATA
 	--;===========================================================
@@ -435,13 +439,14 @@ end
 
 function storyboard.f_storyboard(path, attract)
 	path = path:gsub('\\', '/')
-	if not main.f_fileExists(path) then
-		return
-	end
 	main.f_cmdBufReset()
 	main.f_disableLuaScale()
 	if storyboard.t_storyboard[path] == nil then
 		storyboard.t_storyboard[path] = f_parse(path)
+		if storyboard.t_storyboard[path] == nil then
+			main.f_setLuaScale()
+			return false
+		end
 	else
 		f_reset(storyboard.t_storyboard[path])
 	end

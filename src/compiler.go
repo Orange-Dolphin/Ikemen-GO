@@ -2666,25 +2666,12 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			}
 			return nil
 		}
-		// if sys.cgi[c.playerNo].mugenver[0] == 1 {
-		// if err := eqne(hda); err != nil {
-		// return bvNone(), err
-		// }
-		// } else {
-		// if not, err := c.checkEquality(in); err != nil {
-		// if sys.ignoreMostErrors {
-		// out.appendValue(BytecodeBool(false))
-		// } else {
-		// return bvNone(), err
-		// }
-		// } else if err := hda(); err != nil {
-		// return bvNone(), err
-		// } else if not && !sys.ignoreMostErrors {
-		// return bvNone(), Error("hitdefattr doesn't support '!=' in this mugenversion")
-		// }
-		// }
 		if err := eqne(hda); err != nil {
-			return bvNone(), err
+			if sys.cgi[c.playerNo].ikemenverF > 0 || !sys.ignoreMostErrors {
+				return bvNone(), err
+			}
+			sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": HitDefAttr Missing '=' or '!=' "+" in state %v ", c.stateNo))
+			out.appendValue(BytecodeBool(false))
 		}
 	case "hitdefvar":
 		if err := c.checkOpeningParenthesis(in); err != nil {
@@ -5664,7 +5651,11 @@ func (c *Compiler) paramSpace(is IniSection, sc *StateControllerBase, id byte) e
 		case "screen":
 			spc = Space_screen
 		default:
-			return Error("Invalid space type: " + data)
+			if sys.cgi[c.playerNo].ikemenverF > 0 && !sys.ignoreMostErrors {
+				return Error("Invalid space type: " + data)
+			} else {
+				sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": Invalid space type: "+data+" in state %v ", c.stateNo))
+			}
 		}
 		sc.add(id, sc.iToExp(int32(spc)))
 		return nil
@@ -5747,9 +5738,14 @@ func (c *Compiler) paramTrans(is IniSection, sc *StateControllerBase,
 					_error = true
 				}
 			}
-			if _error && (!afterImage || !sys.ignoreMostErrors) {
-				return Error("Invalid trans type: " + data)
+			if _error {
+				if (!afterImage && sys.cgi[c.playerNo].ikemenverF > 0) || !sys.ignoreMostErrors {
+					return Error("Invalid trans type: " + data)
+				}
+				sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": Invalid trans type: "+data+" in state %v ", c.stateNo))
+				return nil
 			}
+
 		}
 		var exp []BytecodeExp
 		b := false
