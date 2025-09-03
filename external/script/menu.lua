@@ -438,6 +438,10 @@ function menu.f_start()
 				lastNum = j
 			end
 		end
+		motif.f_loadSprData(motif[v.section], {s = 'menu_item_bg_', x = 0, y = 0})
+		motif.f_loadSprData(motif[v.section], {s = 'menu_item_active_bg_', x = 0, y = 0})
+		animSetWindow(motif[v.section].menu_item_bg_data, t_menuWindow[1], t_menuWindow[2], t_menuWindow[3] - t_menuWindow[1], t_menuWindow[4] - t_menuWindow[2])
+		animSetWindow(motif[v.section].menu_item_active_bg_data, t_menuWindow[1], t_menuWindow[2], t_menuWindow[3] - t_menuWindow[1], t_menuWindow[4] - t_menuWindow[2])
 		if main.debugLog then main.f_printTable(menu[v.id], 'debug/t_' .. v.id .. 'Menu.txt') end
 		-- Move list
 		if v.movelist then

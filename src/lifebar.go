@@ -2490,14 +2490,9 @@ type LifeBarRound struct {
 	fightCallOver       bool
 	timerActive         bool
 	winType             [WT_NumTypes * 2]LbBgTextSnd
-	fadein_time         int32
-	fadein_col          uint32
-	fadeout_time        int32
-	fadeout_col         uint32
-	shutter_time        int32
-	shutter_col         uint32
 	callfight_time      int32
-	triggerRoundDisplay bool // FightScreenState trigger
+	rt                  *LifeBarRoundTransition // TODO: Decide whether to just make this part of [Round] or not
+	triggerRoundDisplay bool                    // FightScreenState trigger
 	triggerFightDisplay bool
 	triggerKODisplay    bool
 	triggerWinDisplay   bool
@@ -2517,9 +2512,6 @@ func newLifeBarRound(snd *Snd) *LifeBarRound {
 		over_hittime:       10,
 		over_wintime:       45,
 		over_time:          210,
-		fadein_time:        30,
-		fadeout_time:       30,
-		shutter_time:       15,
 		callfight_time:     60,
 	}
 }
@@ -2806,23 +2798,28 @@ func readLifeBarRound(is IniSection,
 	ro.winType[WT_Suicide+WT_NumTypes] = readLbBgTextSnd("p2.suicide.", is, sff, at, 0, f)
 	ro.winType[WT_Teammate+WT_NumTypes] = readLbBgTextSnd("p2.teammate.", is, sff, at, 0, f)
 	ro.winType[WT_Perfect+WT_NumTypes] = readLbBgTextSnd("p2.perfect.", is, sff, at, 0, f)
-	is.ReadI32("fadein.time", &ro.fadein_time)
+	is.ReadI32("callfight.time", &ro.callfight_time)
+	// Transitions
+	rt := newLifeBarRoundTransition()
+	is.ReadI32("fadein.time", &rt.fadein_time)
 	var col [3]int32
 	if is.ReadI32("fadein.col", &col[0], &col[1], &col[2]) {
-		ro.fadein_col = uint32(col[0]&0xff<<16 | col[1]&0xff<<8 | col[2]&0xff)
+		rt.fadein_col = uint32(col[0]&0xff<<16 | col[1]&0xff<<8 | col[2]&0xff)
 	}
-	is.ReadI32("fadeout.time", &ro.fadeout_time)
-	ro.over_time = Max(ro.fadeout_time, ro.over_time)
+	is.ReadI32("fadeout.time", &rt.fadeout_time)
+	ro.over_time = Max(rt.fadeout_time, ro.over_time)
 	col = [...]int32{0, 0, 0}
 	if is.ReadI32("fadeout.col", &col[0], &col[1], &col[2]) {
-		ro.fadeout_col = uint32(col[0]&0xff<<16 | col[1]&0xff<<8 | col[2]&0xff)
+		rt.fadeout_col = uint32(col[0]&0xff<<16 | col[1]&0xff<<8 | col[2]&0xff)
 	}
-	is.ReadI32("shutter.time", &ro.shutter_time)
+	is.ReadI32("shutter.time", &rt.shutter_time)
 	col = [...]int32{0, 0, 0}
 	if is.ReadI32("shutter.col", &col[0], &col[1], &col[2]) {
-		ro.shutter_col = uint32(col[0]&0xff<<16 | col[1]&0xff<<8 | col[2]&0xff)
+		rt.shutter_col = uint32(col[0]&0xff<<16 | col[1]&0xff<<8 | col[2]&0xff)
 	}
-	is.ReadI32("callfight.time", &ro.callfight_time)
+
+	ro.rt = rt
+
 	return ro
 }
 
@@ -2846,12 +2843,16 @@ func (ro *LifeBarRound) act() bool {
 	if (sys.paused && !sys.step) || sys.gsf(GSF_roundfreeze) {
 		return false
 	}
+	// Transition timers
+	if ro.rt != nil {
+		ro.rt.Step()
+	}
 	// Pre-intro
 	if sys.intro > ro.ctrl_time {
 		ro.current = 0
 		ro.waitTimer[0], ro.waitSoundTimer[0], ro.drawTimer[0] = ro.round_time, ro.round_sndtime, 0
 		ro.waitTimer[1] = ro.callfight_time
-	} else if (sys.intro >= 0 && !sys.tickNextFrame()) || sys.shuttertime > 0 || sys.dialogueFlg {
+	} else if (sys.intro >= 0 && !sys.tickNextFrame()) || sys.dialogueFlg || ro.rt.shutterTimer > 0 {
 		// Skip announcements during the middle of the round, "shuttertime" or dialogues
 		// Mugen ignores the "shuttertime" here, but that makes the round/fight announcement too abrupt
 		return false
@@ -3242,6 +3243,8 @@ func (ro *LifeBarRound) reset() {
 	ro.drawTimer = [4]int32{}
 	ro.roundCallOver = false
 	ro.fightCallOver = false
+	// Transitions (fade in/out and shutter for now)
+	ro.rt.Reset()
 }
 
 func (ro *LifeBarRound) draw(layerno int16, f []*Fnt) {
@@ -3444,7 +3447,90 @@ func (ro *LifeBarRound) draw(layerno int16, f []*Fnt) {
 			}
 		}
 	}
+
+	// Transitions
+	if ro.rt != nil {
+		ro.rt.Draw(layerno)
+	}
+
 	sys.brightness = ob
+}
+
+type LifeBarRoundTransition struct {
+	fadein_time  int32
+	fadein_col   uint32
+	fadeout_time int32
+	fadeout_col  uint32
+	shutter_time int32
+	shutter_col  uint32
+	fadeinTimer  int32
+	fadeoutTimer int32
+	shutterTimer int32
+	// Add anim layouts etc for round transitions here
+}
+
+func newLifeBarRoundTransition() *LifeBarRoundTransition {
+	return &LifeBarRoundTransition{
+		fadein_time:  30,
+		fadeout_time: 30,
+		shutter_time: 15,
+	}
+}
+
+func (rt *LifeBarRoundTransition) Reset() {
+	rt.fadeinTimer = rt.fadein_time
+	rt.fadeoutTimer = 0
+	rt.shutterTimer = 0
+}
+
+func (rt *LifeBarRoundTransition) Step() {
+	if rt.fadeinTimer > 0 {
+		rt.fadeinTimer--
+	}
+	if rt.fadeoutTimer > 0 {
+		rt.fadeoutTimer--
+	}
+	if rt.shutterTimer > 0 {
+		rt.shutterTimer--
+	}
+}
+
+func (rt *LifeBarRoundTransition) Draw(layerno int16) {
+	// Draw fade and shutter
+	if layerno == 2 {
+		fade := func(rect [4]int32, color uint32, alpha int32) {
+			FillRect(rect, color, alpha>>uint(Btoi(sys.clsnDisplay))+Btoi(sys.clsnDisplay)*128)
+		}
+
+		// Draw fadein/fadeout (mutually exclusive)
+		if rt.fadeinTimer > 0 {
+			fade(sys.scrrect, rt.fadein_col, 256*rt.fadeinTimer/Max(1, rt.fadein_time))
+		} else if rt.fadeoutTimer > 0 && !sys.dialogueFlg {
+			fade(sys.scrrect, rt.fadeout_col, 256*(rt.fadeout_time-rt.fadeoutTimer)/Max(1, rt.fadeout_time))
+		} else if sys.clsnDisplay && sys.cfg.Debug.ClsnDarken {
+			fade(sys.scrrect, 0, 0)
+		}
+
+		// Draw shutter effect on skipped intros
+		if rt.shutterTimer > 0 {
+			var h int32
+			if rt.shutterTimer > rt.shutter_time {
+				// Closing
+				h = (rt.shutter_time*2 - rt.shutterTimer) * ((sys.scrrect[3] + 1) >> 1) / Max(1, rt.shutter_time)
+			} else {
+				// Opening
+				h = rt.shutterTimer * ((sys.scrrect[3] + 1) >> 1) / Max(1, rt.shutter_time)
+			}
+			rect := sys.scrrect
+			rect[3] = h
+			fade(rect, rt.shutter_col, 255)
+			rect[1] = sys.scrrect[3] - h
+			rect[3] = h
+			fade(rect, rt.shutter_col, 255)
+		}
+	}
+
+	// Draw animations etc here
 }
 
 type LifeBarRatio struct {
@@ -3964,6 +4050,7 @@ type Lifebar struct {
 	co         [2]*LifeBarCombo
 	ac         [2]*LifeBarAction
 	ro         *LifeBarRound
+	rt         *LifeBarRoundTransition
 	ra         [2]*LifeBarRatio
 	tr         *LifeBarTimer
 	sc         [2]*LifeBarScore
@@ -4857,7 +4944,7 @@ func (l *Lifebar) draw(layerno int16) {
 	if sys.postMatchFlg || sys.dialogueBarsFlg {
 		return
 	}
-	if sys.lifebarDisplay && l.active {
+	if !sys.lifebarHide && l.active {
 		if !sys.gsf(GSF_nobardisplay) && l.bars {
 			// HealthBar
 			for ti := range sys.tmode {

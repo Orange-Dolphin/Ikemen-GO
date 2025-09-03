@@ -2,13 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gopxl/beep/v2"
@@ -46,6 +46,13 @@ func NewNormalizer(st beep.Streamer) *Normalizer {
 }
 
 func (n *Normalizer) Stream(samples [][2]float64) (s int, ok bool) {
+	// IDK how this happens, it just does after running for a really,
+	// really long time and the below streamer.Stream method does not
+	// do a nil check. This should at least prevent crashes, but may
+	// lead to sound glitches.
+	if len(samples) <= 0 {
+		return 0, false
+	}
 	s, ok = n.streamer.Stream(samples)
 	for i := range samples[:s] {
 		lmul := n.l.process(n.mul, &samples[i][0])
@@ -90,39 +97,35 @@ func (n *NormalizerLR) process(mul float64, sam *float64) float64 {
 
 // ------------------------------------------------------------------
 // SwapSeeker - beep.StreamSeeker that can be swapped to in-memory
-// copy at runtime. Contains offset logic because initially, this
-// only used the loop portion (and can be edited back to do so e.g.
-// for tighter memory constraints)
+// copy at runtime.
 type SwapSeeker struct {
-	mu     sync.RWMutex      // read/write mutex
-	ss     beep.StreamSeeker // current source
-	offset int               // absolute position corresponding to ss index 0
+	mu sync.RWMutex      // read/write mutex
+	ss beep.StreamSeeker // current source
 }
 
 func newSwapSeeker(ss beep.StreamSeeker) *SwapSeeker {
-	return &SwapSeeker{ss: ss, offset: 0}
+	return &SwapSeeker{ss: ss}
 }
 
 // Swap(next, absStart): next - new seeker; absStart - the
 // absolute sample index that @next's position 0 represents.
 func (sw *SwapSeeker) Swap(next beep.StreamSeeker, absStart int) {
 	sw.mu.Lock()
-	absPos := sw.offset + sw.ss.Position()
-	sw.offset = absStart
+	speaker.Lock()
+	pos := sw.ss.Position()
 
-	relPos := absPos - sw.offset // convert to seeker coords
-	if relPos < 0 {
-		relPos = 0
-	}
-	if ln := next.Len(); ln > 0 { // guard against 0
-		relPos %= ln
-	} else { // empty buffer → just stick at 0
-		relPos = 0
+	if ln := next.Len(); ln <= 0 { // guard against 0
+		// empty buffer, don't try to swap this
+		sys.errLog.Println("Empty BGM RAM swap buffer somehow. Aborting swap at the absolute last possible moment!")
+		sw.mu.Unlock()
+		speaker.Unlock()
+		return
 	}
 
-	next.Seek(relPos)
+	next.Seek(pos)
 	sw.ss = next
 	sw.mu.Unlock()
+	speaker.Unlock()
 }
 
 func (sw *SwapSeeker) Stream(out [][2]float64) (int, bool) {
@@ -134,20 +137,19 @@ func (sw *SwapSeeker) Stream(out [][2]float64) (int, bool) {
 func (sw *SwapSeeker) Seek(p int) error {
 	sw.mu.RLock()
 	ss := sw.ss
-	// p is absolute so we must offset it
-	off := sw.offset
+	err := ss.Seek(p)
 	sw.mu.RUnlock()
-	return ss.Seek(p - off)
+	return err
 }
 func (sw *SwapSeeker) Position() int {
 	sw.mu.RLock()
-	pos := sw.offset + sw.ss.Position()
+	pos := sw.ss.Position()
 	sw.mu.RUnlock()
 	return pos
 }
 func (sw *SwapSeeker) Len() int {
 	sw.mu.RLock()
-	l := sw.offset + sw.ss.Len()
+	l := sw.ss.Len()
 	sw.mu.RUnlock()
 	return l
 }
@@ -292,7 +294,8 @@ type Bgm struct {
 	freqmul    float32
 	sampleRate beep.SampleRate
 	startPos   int
-	gen        uint32
+	mu         sync.Mutex
+	cancel     context.CancelFunc
 }
 
 func newBgm() *Bgm {
@@ -300,8 +303,15 @@ func newBgm() *Bgm {
 }
 
 func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd, startPosition int, freqmul float32, loopcount int) {
-	bgm.gen++
-	thisGen := bgm.gen
+	// Right away, cancel any running goroutines.
+	bgm.mu.Lock()
+	if bgm.cancel != nil {
+		bgm.cancel()
+	}
+	var ctx context.Context
+	ctx, bgm.cancel = context.WithCancel(context.Background())
+	bgm.mu.Unlock()
+
 	bgm.filename = filename
 	bgm.loop = loop
 	bgm.bgmVolume = bgmVolume
@@ -387,113 +397,144 @@ func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd,
 	bgm.streamer.Seek(startPosition)
 	speaker.Play(bgm.ctrl)
 
-	// Handle this in the background
-	go func() {
-		currentPos := bgm.streamer.Position()
-		// Try to do the swap 2 seconds before the loop
-		margin := format.SampleRate.N(2 * time.Second)
+	// Handle the RAM swap in the background (only for looped BGM)
+	if lc != 0 {
+		go func(ctx context.Context) {
+			// Call the cancel function when the goroutine exits
+			// to ensure cleanup.
+			defer func() {
+				bgm.mu.Lock()
+				bgm.cancel()
+				bgm.mu.Unlock()
+			}()
 
-		if currentPos >= bgmLoopEnd-margin {
-			sys.errLog.Println("Not enough time to buffer BGM before loop - skipping RAM swap.")
-			return
-		}
+			currentPos := bgm.streamer.Position()
+			// Try to do the swap 2 seconds before the loop
+			margin := format.SampleRate.N(2 * time.Second)
 
-		lf, err := OpenFile(bgm.filename)
-		if err != nil {
-			sys.errLog.Println(err)
-			return
-		}
-
-		// We gotta re-decode this crap again (but it won't matter since we're on a different thread)
-		var dec beep.StreamSeeker
-		switch bgm.format {
-		case "ogg":
-			dec, _, err = vorbis.Decode(lf)
-		case "mp3":
-			dec, _, err = mp3.Decode(lf)
-		case "wav":
-			dec, _, err = wav.Decode(lf)
-		case "flac":
-			dec, _, err = flac.Decode(lf)
-		case "midi":
-			sf, e := loadSoundFont(audioSoundFont)
-			if e != nil {
-				sys.errLog.Println(e)
+			if currentPos >= bgmLoopEnd-margin {
+				sys.errLog.Println("Not enough time to buffer BGM before loop - skipping RAM swap.")
 				return
 			}
-			dec, _, err = midi.Decode(lf, sf, bgm.sampleRate)
+
+			// We're gonna be using this a lot to check cancellation.
+			isCancelled := func() bool {
+				select {
+				case <-ctx.Done():
+					sys.errLog.Println("New BGM queued up - skipping RAM swap for this BGM")
+					return true
+				default:
+					// Continue
+					return false
+				}
+			}
+
+			// New BGM was queued up before opening file, return NOW
+			if isCancelled() {
+				return
+			}
+
+			lf, err := OpenFile(bgm.filename)
 			if err != nil {
 				sys.errLog.Println(err)
 				return
 			}
 
-			dec.Seek(0)
-			buf := beep.NewBuffer(format)
-			buf.Append(beep.Take(dec.Len(), dec))
-			lf.Close() // even if midi.Decode already does this (just to be safe)
-
-			// Don't ask why but there can be a mismatch between samples retrieved
-			// from the previous operation vs. this operation (i.e. we cannot trust
-			// the sample length from the initial decode; we must recalculate the
-			// loop end if people have it at the end of their track)
-			memSeeker := newBufferSeeker(buf)
-			if sl, ok := streamer.(*StreamLooper); ok {
-				sl.loopend = MinI(memSeeker.Len(), sl.loopend)
-			}
-			if memSeeker.Len() == 0 {
-				sys.errLog.Println("Empty MIDI buffer after loop span extraction - aborting swap")
+			// New BGM was queued up after opening file, close & return NOW
+			if isCancelled() {
+				lf.Close()
 				return
 			}
 
-			// New BGM was queued up, return NOW
-			if atomic.LoadUint32(&bgm.gen) != thisGen {
-				sys.errLog.Println("New BGM queued up - skipping RAM swap for this BGM")
-				return
-			}
-
-			// Immediate swap - DO NOT wait for margin (because MIDI is fickle with sample counts - see above)
-			speaker.Lock()
-			sw.Swap(memSeeker, 0)
-			speaker.Unlock()
-			return
-		}
-		if err != nil {
-			sys.errLog.Println(err)
-			return
-		}
-
-		// build RAM buffer with loop span
-		dec.Seek(0)
-		buf := beep.NewBuffer(format)
-		buf.Append(beep.Take(dec.Len(), dec))
-
-		// close if this decoder supports it (all but MIDI but we don't get here with that anyway)
-		if c, ok := dec.(io.Closer); ok {
-			c.Close()
-		}
-		lf.Close() // doing this out of paranoia, harmless to call
-
-		// Now create the new bufferSeeker
-		memSeeker := newBufferSeeker(buf)
-		if memSeeker.Len() > 0 {
-			for {
-				// New BGM was queued up, return NOW
-				if atomic.LoadUint32(&bgm.gen) != thisGen {
-					sys.errLog.Println("New BGM queued up - skipping RAM swap for this BGM")
+			// We gotta re-decode this crap again (but it won't matter since we're on a different thread)
+			var dec beep.StreamSeeker
+			switch bgm.format {
+			case "ogg":
+				dec, _, err = vorbis.Decode(lf)
+			case "mp3":
+				dec, _, err = mp3.Decode(lf)
+			case "wav":
+				dec, _, err = wav.Decode(lf)
+			case "flac":
+				dec, _, err = flac.Decode(lf)
+			case "midi":
+				sf, e := loadSoundFont(audioSoundFont)
+				if e != nil {
+					sys.errLog.Println(e)
+					return
+				}
+				dec, _, err = midi.Decode(lf, sf, bgm.sampleRate)
+				if err != nil {
+					sys.errLog.Println(err)
 					return
 				}
 
-				if bgm.streamer.Position() >= bgmLoopEnd-margin {
-					// Check if we're within the "swap" margin then pop, lock, and swap it
-					speaker.Lock()
-					sw.Swap(memSeeker, 0)
-					speaker.Unlock()
-					break
+				dec.Seek(0)
+				buf := beep.NewBuffer(format)
+				buf.Append(beep.Take(dec.Len(), dec))
+				lf.Close() // even if midi.Decode already does this (just to be safe)
+
+				// Don't ask why but there can be a mismatch between samples retrieved
+				// from the previous operation vs. this operation (i.e. we cannot trust
+				// the sample length from the initial decode; we must recalculate the
+				// loop end if people have it at the end of their track)
+				memSeeker := newBufferSeeker(buf)
+				if sl, ok := streamer.(*StreamLooper); ok {
+					sl.loopend = MinI(memSeeker.Len(), sl.loopend)
 				}
-				time.Sleep(10 * time.Millisecond)
+				if memSeeker.Len() == 0 {
+					sys.errLog.Println("Empty MIDI buffer after loop span extraction - aborting swap")
+					return
+				}
+
+				// New BGM was queued up, return NOW
+				if isCancelled() {
+					return
+				}
+
+				// Immediate swap - DO NOT wait for margin (because MIDI is fickle with sample counts - see above)
+				sw.Swap(memSeeker, 0)
+				return
 			}
-		}
-	}()
+			if err != nil {
+				sys.errLog.Println(err)
+				return
+			}
+
+			// build RAM buffer with loop span
+			dec.Seek(0)
+			buf := beep.NewBuffer(format)
+			buf.Append(beep.Take(dec.Len(), dec))
+
+			// close if this decoder supports it (all but MIDI but we don't get here with that anyway)
+			if c, ok := dec.(io.Closer); ok {
+				c.Close()
+			}
+			lf.Close() // doing this out of paranoia, harmless to call
+
+			// Now create the new bufferSeeker
+			memSeeker := newBufferSeeker(buf)
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+
+			if memSeeker.Len() > 0 {
+				for {
+					select {
+					case <-ctx.Done():
+						// Cancelled by a new call to bgm.Open()
+						return
+					case <-ticker.C:
+						// Woke up to check the position
+						if bgm.streamer.Position() >= bgmLoopEnd-margin {
+							// Check if we're within the "swap" margin then pop, lock, and swap it (swap method handles locking now)
+							sw.Swap(memSeeker, 0)
+							return
+						}
+					}
+				}
+			}
+		}(ctx)
+	}
 }
 
 func loadSoundFont(filename string) (*midi.SoundFont, error) {

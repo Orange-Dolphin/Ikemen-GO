@@ -153,8 +153,11 @@ func newCompiler() *Compiler {
 		"modifyhitdef":         c.modifyHitDef,
 		"modifyplayer":         c.modifyPlayer,
 		"modifyprojectile":     c.modifyProjectile,
+		"modifyreflection":     c.modifyReflection,
 		"modifyreversaldef":    c.modifyReversalDef,
+		"modifyshadow":         c.modifyShadow,
 		"modifysnd":            c.modifySnd,
+		"modifystagebg":        c.modifyStageBG,
 		"modifystagevar":       c.modifyStageVar,
 		"parentmapadd":         c.parentMapAdd,
 		"parentmapset":         c.parentMapSet,
@@ -171,8 +174,7 @@ func newCompiler() *Compiler {
 		"roundtimeset":         c.roundTimeSet,
 		"savefile":             c.saveFile,
 		"scoreadd":             c.scoreAdd,
-		"modifyshadow":         c.modifyShadow,
-		"modifyreflection":     c.modifyReflection,
+		"shiftinput":           c.shiftInput,
 		"tagin":                c.tagIn,
 		"tagout":               c.tagOut,
 		"targetadd":            c.targetAdd,
@@ -185,7 +187,6 @@ func newCompiler() *Compiler {
 		"text":                 c.text,
 		"transformclsn":        c.transformClsn,
 		"transformsprite":      c.transformSprite,
-		"modifystagebg":        c.modifyStageBG,
 	}
 	return c
 }
@@ -768,10 +769,11 @@ func (c *Compiler) attr(text string, hitdef bool) (int32, error) {
 		case "h", "a":
 			flg |= int32(AT_HA | AT_HT | AT_HP)
 		default:
-			if sys.ignoreMostErrors && sys.cgi[c.playerNo].mugenver[0] == 1 {
+			if sys.ignoreMostErrors {
 				//if hitdef {
 				//	flg = hitdefflg
 				//}
+				sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": Invalid attr value: "+a+" in state %v ", c.stateNo))
 				return flg, nil
 			}
 			return 0, Error("Invalid attr value: " + a)
@@ -4198,24 +4200,24 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		out.append(OC_ex_, OC_ex_combocount)
 	case "consecutivewins":
 		out.append(OC_ex_, OC_ex_consecutivewins)
-	case "debug":
+	case "debugmode":
 		if err := c.checkOpeningParenthesis(in); err != nil {
 			return bvNone(), err
 		}
 		out.append(OC_ex2_)
 		switch c.token {
 		case "accel":
-			out.append(OC_ex2_debug_accel)
+			out.append(OC_ex2_debugmode_accel)
 		case "clsndisplay":
-			out.append(OC_ex2_debug_clsndisplay)
+			out.append(OC_ex2_debugmode_clsndisplay)
 		case "debugdisplay":
-			out.append(OC_ex2_debug_debugdisplay)
-		case "lifebardisplay":
-			out.append(OC_ex2_debug_lifebardisplay)
+			out.append(OC_ex2_debugmode_debugdisplay)
+		case "lifebarhide":
+			out.append(OC_ex2_debugmode_lifebarhide)
 		case "wireframedisplay":
-			out.append(OC_ex2_debug_wireframedisplay)
+			out.append(OC_ex2_debugmode_wireframedisplay)
 		case "roundreset":
-			out.append(OC_ex2_debug_roundreset)
+			out.append(OC_ex2_debugmode_roundreset)
 		default:
 			return bvNone(), Error("Invalid Debug trigger argument: " + c.token)
 		}
@@ -7380,6 +7382,7 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 				if sys.cgi[pn].ikemenver[0] != 0 || sys.cgi[pn].ikemenver[1] != 0 {
 					sys.cgi[pn].mugenver[0] = 1
 					sys.cgi[pn].mugenver[1] = 1
+					sys.cgi[pn].mugenverF = 1.1
 				}
 			}
 		case "files":
@@ -7446,91 +7449,113 @@ func (c *Compiler) Compile(pn int, def string, constants map[string]float32) (ma
 		is, name, _ := ReadIniSection(lines, &i)
 		switch name {
 		case "remap":
-			// Read controller remap
+			// Read button remapping
 			if remap {
 				remap = false
-				rm := func(name string, k, nk *CommandKey) {
+				rm := func(name string, k *CommandKey) {
 					switch strings.ToLower(is[name]) {
 					case "x":
-						*k, *nk = CK_x, CK_rx
+						*k = CK_x
 					case "y":
-						*k, *nk = CK_y, CK_ry
+						*k = CK_y
 					case "z":
-						*k, *nk = CK_z, CK_rz
+						*k = CK_z
 					case "a":
-						*k, *nk = CK_a, CK_ra
+						*k = CK_a
 					case "b":
-						*k, *nk = CK_b, CK_rb
+						*k = CK_b
 					case "c":
-						*k, *nk = CK_c, CK_rc
+						*k = CK_c
 					case "s":
-						*k, *nk = CK_s, CK_rs
+						*k = CK_s
 					case "d":
-						*k, *nk = CK_d, CK_rd
+						*k = CK_d
 					case "w":
-						*k, *nk = CK_w, CK_rw
+						*k = CK_w
 					case "m":
-						*k, *nk = CK_m, CK_rm
+						*k = CK_m
 					}
 				}
-				rm("x", &ckr.x, &ckr.nx)
-				rm("y", &ckr.y, &ckr.ny)
-				rm("z", &ckr.z, &ckr.nz)
-				rm("a", &ckr.a, &ckr.na)
-				rm("b", &ckr.b, &ckr.nb)
-				rm("c", &ckr.c, &ckr.nc)
-				rm("s", &ckr.s, &ckr.ns)
-				rm("d", &ckr.d, &ckr.nd)
-				rm("w", &ckr.w, &ckr.nw)
-				rm("m", &ckr.m, &ckr.nm)
+				rm("x", &ckr.x)
+				rm("y", &ckr.y)
+				rm("z", &ckr.z)
+				rm("a", &ckr.a)
+				rm("b", &ckr.b)
+				rm("c", &ckr.c)
+				rm("s", &ckr.s)
+				rm("d", &ckr.d)
+				rm("w", &ckr.w)
+				rm("m", &ckr.m)
 			}
 		case "defaults":
 			// Read default command parameters
 			if defaults {
 				defaults = false
 				is.ReadI32("command.time", &c.cmdl.DefaultTime)
-				is.ReadI32("command.key.time", &c.cmdl.DefaultKeyTime)
+				is.ReadI32("command.steptime", &c.cmdl.DefaultStepTime)
+				is.ReadBool("command.autogreater", &c.cmdl.DefaultAutoGreater)
 				var i32 int32
 				if is.ReadI32("command.buffer.time", &i32) {
 					c.cmdl.DefaultBufferTime = Max(1, i32)
 				}
 				is.ReadBool("command.buffer.hitpause", &c.cmdl.DefaultBufferHitpause)
 				is.ReadBool("command.buffer.pauseend", &c.cmdl.DefaultBufferPauseEnd)
+				is.ReadBool("command.buffer.shared", &c.cmdl.DefaultBufferShared)
 			}
 		default:
-			// Read command inputs
+			// Get command sections
 			if len(name) >= 7 && name[:7] == "command" {
 				cmds = append(cmds, is)
 			}
 		}
 	}
-	// Parse input commands
+	// Parse commands
 	for _, is := range cmds {
+		cm := newCommand()
+
+		// Get name
 		name, _, err := is.getText("name")
 		if err != nil {
 			return nil, Error(fmt.Sprintf("%v:\nname: %v\n%v",
 				cmd, name, err.Error()))
 		}
-		cm, err := ReadCommand(name, is["command"], ckr)
-		if err != nil {
-			return nil, Error(cmd + ":\nname = " + is["name"] +
-				"\ncommand = " + is["command"] + "\n" + err.Error())
-		}
+		cm.name = name
+
 		// Default parameters
 		cm.maxtime = c.cmdl.DefaultTime
 		cm.maxbuftime = c.cmdl.DefaultBufferTime
-		cm.maxkeytime = c.cmdl.DefaultKeyTime
+		cm.maxsteptime = c.cmdl.DefaultStepTime
+		cm.autogreater = c.cmdl.DefaultAutoGreater
 		cm.buffer_hitpause = c.cmdl.DefaultBufferHitpause
 		cm.buffer_pauseend = c.cmdl.DefaultBufferPauseEnd
+		cm.buffer_shared = c.cmdl.DefaultBufferShared
+
 		// Read specific parameters
 		is.ReadI32("time", &cm.maxtime)
-		is.ReadI32("key.time", &cm.maxkeytime)
+		is.ReadI32("steptime", &cm.maxsteptime)
+		if cm.maxsteptime <= 0 {
+			cm.maxsteptime = cm.maxtime // Default steptime to overall time
+		}
+		is.ReadBool("autogreater", &cm.autogreater)
 		var i32 int32
 		if is.ReadI32("buffer.time", &i32) {
 			cm.maxbuftime = Max(1, i32)
 		}
 		is.ReadBool("buffer.hitpause", &cm.buffer_hitpause)
 		is.ReadBool("buffer.pauseend", &cm.buffer_pauseend)
+		is.ReadBool("buffer.shared", &cm.buffer_shared)
+
+		// Parse the command string and populate steps
+		err = cm.ReadCommandSymbols(is["command"], ckr)
+		if err != nil {
+			if sys.ignoreMostErrors && sys.cgi[pn].ikemenver[0] == 0 && sys.cgi[pn].ikemenver[1] == 0 {
+				// Mugen characters ignore command definition errors
+			} else {
+				return nil, Error(cmd + ":\nname = " + is["name"] +
+					"\ncommand = " + is["command"] + "\n" + err.Error())
+			}
+		}
+
 		c.cmdl.Add(*cm)
 	}
 

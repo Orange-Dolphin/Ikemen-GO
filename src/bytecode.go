@@ -782,12 +782,12 @@ const (
 	OC_ex2_clsnvar_right
 	OC_ex2_clsnvar_bottom
 	OC_ex2_isclsnproxy
-	OC_ex2_debug_accel
-	OC_ex2_debug_clsndisplay
-	OC_ex2_debug_debugdisplay
-	OC_ex2_debug_lifebardisplay
-	OC_ex2_debug_roundreset
-	OC_ex2_debug_wireframedisplay
+	OC_ex2_debugmode_accel
+	OC_ex2_debugmode_clsndisplay
+	OC_ex2_debugmode_debugdisplay
+	OC_ex2_debugmode_lifebarhide
+	OC_ex2_debugmode_roundreset
+	OC_ex2_debugmode_wireframedisplay
 	OC_ex2_drawpal_group
 	OC_ex2_drawpal_index
 	OC_ex2_explodvar_accel_x
@@ -3147,9 +3147,9 @@ func (be BytecodeExp) run_ex(c *Char, i *int, oc *Char) {
 	case OC_ex_scale_z:
 		sys.bcStack.PushF(c.zScale)
 	case OC_ex_offset_x:
-		sys.bcStack.PushF(c.offset[0]) // Already in local scale
+		sys.bcStack.PushF(c.offset[0] / oc.localscl) // Already in c.localscl so we only divide by oc.localscl
 	case OC_ex_offset_y:
-		sys.bcStack.PushF(c.offset[1])
+		sys.bcStack.PushF(c.offset[1] / oc.localscl)
 	case OC_ex_alpha_s:
 		if c.csf(CSF_trans) {
 			sys.bcStack.PushI(c.alpha[0])
@@ -3405,17 +3405,17 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 			}
 		}
 		sys.bcStack.PushF(v * (c.localscl / oc.localscl))
-	case OC_ex2_debug_accel:
+	case OC_ex2_debugmode_accel:
 		sys.bcStack.PushF(sys.accel)
-	case OC_ex2_debug_clsndisplay:
+	case OC_ex2_debugmode_clsndisplay:
 		sys.bcStack.PushB(sys.clsnDisplay)
-	case OC_ex2_debug_debugdisplay:
+	case OC_ex2_debugmode_debugdisplay:
 		sys.bcStack.PushB(sys.debugDisplay)
-	case OC_ex2_debug_lifebardisplay:
-		sys.bcStack.PushB(sys.lifebarDisplay)
-	case OC_ex2_debug_roundreset:
+	case OC_ex2_debugmode_lifebarhide:
+		sys.bcStack.PushB(sys.lifebarHide)
+	case OC_ex2_debugmode_roundreset:
 		sys.bcStack.PushB(sys.roundResetFlg)
-	case OC_ex2_debug_wireframedisplay:
+	case OC_ex2_debugmode_wireframedisplay:
 		sys.bcStack.PushB(sys.wireframeDisplay)
 	case OC_ex2_drawpal_group:
 		sys.bcStack.PushI(c.drawPal()[0])
@@ -6266,9 +6266,9 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 					ffx := string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 
 					eachExpl(func(e *Explod) {
+						e.animNo = animNo
 						e.animelem = 1
 						e.animelemtime = 0
-						e.animNo = animNo
 						e.setAnim(e.animNo, apn, spn, ffx)
 					})
 				}
@@ -7258,7 +7258,7 @@ func (sc projectile) Run(c *Char, _ []int32) bool {
 			p.hitanim = exp[1].evalI(c)
 			p.hitanim_ffx = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 		case projectile_projremanim:
-			p.remanim = Max(-1, exp[1].evalI(c))
+			p.remanim = Max(-2, exp[1].evalI(c))
 			p.remanim_ffx = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 		case projectile_projcancelanim:
 			p.cancelanim = Max(-1, exp[1].evalI(c))
@@ -7579,7 +7579,7 @@ func (sc modifyProjectile) Run(c *Char, _ []int32) bool {
 				var v2 int32
 				v1 = string(*(*[]byte)(unsafe.Pointer(&exp[0])))
 				if len(exp) > 1 {
-					v2 = Max(-1, exp[1].evalI(c))
+					v2 = Max(-2, exp[1].evalI(c))
 				}
 				eachProj(func(p *Projectile) {
 					p.remanim_ffx = v1
@@ -13415,6 +13415,54 @@ func (sc modifyReflection) Run(c *Char, _ []int32) bool {
 		}
 		return true
 	})
+	return false
+}
+
+type shiftInput StateControllerBase
+
+const (
+	shiftInput_input byte = iota
+	shiftInput_output
+	shiftInput_redirectid
+)
+
+func (sc shiftInput) Run(c *Char, _ []int32) bool {
+	crun := getRedirectedChar(c, StateControllerBase(sc), shiftInput_redirectid, "ShiftInput")
+	if crun == nil {
+		return false
+	}
+
+	var src, dst int = -1, -1
+
+	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
+		switch paramID {
+		case shiftInput_input:
+			src = int(exp[0].evalI(c))
+		case shiftInput_output:
+			dst = int(exp[0].evalI(c))
+		}
+		return true
+	})
+
+	// Reset all mappings if both are none. Or do nothing if only source is none
+	if src < 0 {
+		if dst < 0 {
+			c.inputShift = nil
+		}
+		return false
+	}
+
+	// Reuse mapping if source already exists
+	for i := range c.inputShift {
+		if c.inputShift[i][0] == src {
+			c.inputShift[i][1] = dst
+			return false
+		}
+	}
+
+	// Otherise add new mapping
+	c.inputShift = append(c.inputShift, [2]int{src, dst})
+
 	return false
 }
 

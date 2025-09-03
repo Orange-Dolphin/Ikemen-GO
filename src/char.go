@@ -1316,8 +1316,8 @@ type Explod struct {
 func (e *Explod) clear() {
 	*e = Explod{
 		id:                IErr,
-		bindtime:          1,
-		scale:             [...]float32{1, 1},
+		bindtime:          1, // Not documented but confirmed
+		scale:             [2]float32{1, 1},
 		removetime:        -2,
 		postype:           PT_P1,
 		space:             Space_none,
@@ -1500,7 +1500,7 @@ func (e *Explod) setAnimElem() {
 	}
 }
 
-func (e *Explod) update(oldVer bool, playerNo int) {
+func (e *Explod) update(mugenverF float32, playerNo int) {
 	if e.anim == nil {
 		e.id = IErr
 	}
@@ -1546,7 +1546,7 @@ func (e *Explod) update(oldVer bool, playerNo int) {
 	// Bind explod to parent
 	// In Mugen this only happens if the explod is not paused, hence "act"
 	if act && e.bindtime != 0 &&
-		(e.space == Space_stage || (e.space == Space_screen && e.postype <= PT_P2)) {
+		(e.space == Space_stage || (e.space == Space_screen && (e.postype <= PT_P2 || mugenverF < 1.1))) {
 		if c := sys.playerID(e.bindId); c != nil {
 			e.pos[0] = c.interPos[0]*c.localscl/e.localscl + c.offsetX()*c.localscl/e.localscl
 			e.pos[1] = c.interPos[1]*c.localscl/e.localscl + c.offsetY()*c.localscl/e.localscl
@@ -1664,7 +1664,7 @@ func (e *Explod) update(oldVer bool, playerNo int) {
 		rot:          rot,
 		screen:       e.space == Space_screen,
 		undarken:     playerNo == sys.superplayerno,
-		oldVer:       oldVer,
+		oldVer:       mugenverF < 1.0,
 		facing:       facing,
 		airOffsetFix: [2]float32{1, 1},
 		projection:   int32(e.projection),
@@ -1983,61 +1983,78 @@ func (p *Projectile) paused(playerNo int) bool {
 func (p *Projectile) update() {
 	// Check projectile removal conditions
 	if sys.tickFrame() && !p.paused(p.playerno) && p.hitpause == 0 {
-		if p.anim >= 0 {
-			if !p.remflag {
-				remove := true
-				root := sys.chars[p.playerno][0]
-				if p.hits < 0 {
-					// Remove behavior
-					if p.hits == -1 && p.remove {
-						if p.hitanim != p.anim || p.hitanim_ffx != p.anim_ffx {
-							p.ani = root.getAnim(p.hitanim, p.hitanim_ffx, true)
+		if p.anim >= 0 && !p.remflag {
+			remove := true
+			root := sys.chars[p.playerno][0]
+			if p.hits < 0 {
+				// Remove behavior
+				if p.hits == -1 && p.remove {
+					if p.hitanim != p.anim || p.hitanim_ffx != p.anim_ffx {
+						if p.hitanim == -1 {
+							p.ani = nil
+						} else if ani := root.getAnim(p.hitanim, p.hitanim_ffx, true); ani != nil {
+							p.ani = ani
 						}
 					}
-					// Cancel behavior
-					if p.hits == -2 {
-						if p.cancelanim != p.anim || p.cancelanim_ffx != p.anim_ffx {
-							p.ani = root.getAnim(p.cancelanim, p.cancelanim_ffx, true)
+				}
+				// Cancel behavior
+				if p.hits == -2 {
+					if p.cancelanim != p.anim || p.cancelanim_ffx != p.anim_ffx {
+						if p.cancelanim == -1 {
+							p.ani = nil
+						} else if ani := root.getAnim(p.cancelanim, p.cancelanim_ffx, true); ani != nil {
+							p.ani = ani
 						}
 					}
-				} else if p.removetime == 0 ||
-					p.removetime <= -2 && (p.ani == nil || p.ani.loopend) ||
-					p.pos[0] < (sys.xmin-sys.screenleft)/p.localscl-float32(p.edgebound) ||
-					p.pos[0] > (sys.xmax+sys.screenright)/p.localscl+float32(p.edgebound) ||
-					p.velocity[0]*p.facing < 0 && p.pos[0] < sys.cam.XMin/p.localscl-float32(p.stagebound) ||
-					p.velocity[0]*p.facing > 0 && p.pos[0] > sys.cam.XMax/p.localscl+float32(p.stagebound) ||
-					p.velocity[1] > 0 && p.pos[1] > float32(p.heightbound[1]) ||
-					p.velocity[1] < 0 && p.pos[1] < float32(p.heightbound[0]) ||
-					p.pos[2] < (sys.zmin/p.localscl-float32(p.depthbound)) ||
-					p.pos[2] > (sys.zmax/p.localscl+float32(p.depthbound)) {
-					if p.remanim != p.anim || p.remanim_ffx != p.anim_ffx {
-						p.ani = root.getAnim(p.remanim, p.remanim_ffx, true)
+				}
+			} else if p.removetime == 0 ||
+				p.removetime <= -2 && (p.ani == nil || p.ani.loopend) ||
+				p.pos[0] < (sys.xmin-sys.screenleft)/p.localscl-float32(p.edgebound) ||
+				p.pos[0] > (sys.xmax+sys.screenright)/p.localscl+float32(p.edgebound) ||
+				p.velocity[0]*p.facing < 0 && p.pos[0] < sys.cam.XMin/p.localscl-float32(p.stagebound) ||
+				p.velocity[0]*p.facing > 0 && p.pos[0] > sys.cam.XMax/p.localscl+float32(p.stagebound) ||
+				p.velocity[1] > 0 && p.pos[1] > float32(p.heightbound[1]) ||
+				p.velocity[1] < 0 && p.pos[1] < float32(p.heightbound[0]) ||
+				p.pos[2] < (sys.zmin/p.localscl-float32(p.depthbound)) ||
+				p.pos[2] > (sys.zmax/p.localscl+float32(p.depthbound)) {
+				if p.remanim != p.anim || p.remanim_ffx != p.anim_ffx {
+					if p.remanim != -2 {
+						if p.remanim == -1 {
+							p.ani = nil
+						} else if ani := root.getAnim(p.remanim, p.remanim_ffx, true); ani != nil {
+							p.ani = ani
+							// In Mugen, if remanim is invalid the projectile will keep the current one
+							// https://github.com/ikemen-engine/Ikemen-GO/issues/2584
+						}
 					}
+				}
+				remove = true
+			} else {
+				remove = false
+			}
+			// Active to removing transition
+			if remove {
+				p.remflag = true
+				if p.ani != nil {
+					p.ani.UpdateSprite()
+				}
+				p.velocity = p.remvelocity
+				if p.facing == p.removefacing {
+					p.facing = p.removefacing
 				} else {
-					remove = false
+					p.velocity[0] *= -1
 				}
-				if remove {
-					p.remflag = true
-					if p.ani != nil {
-						p.ani.UpdateSprite()
-					}
-					p.velocity = p.remvelocity
-					if p.facing == p.removefacing {
-						p.facing = p.removefacing
-					} else {
-						p.velocity[0] *= -1
-					}
-					p.accel = [3]float32{0, 0, 0}
-					p.velmul = [3]float32{1, 1, 1}
-					p.anim = -1
-					// In Mugen, projectiles can hit even after their removetime expires
-					// https://github.com/ikemen-engine/Ikemen-GO/issues/1362
-					//if p.hits >= 0 {
-					//	p.hits = -1
-					//}
-				}
+				p.accel = [3]float32{0, 0, 0}
+				p.velmul = [3]float32{1, 1, 1}
+				p.anim = -1
+				// In Mugen, projectiles can hit even after their removetime expires
+				// https://github.com/ikemen-engine/Ikemen-GO/issues/1362
+				//if p.hits >= 0 {
+				//	p.hits = -1
+				//}
 			}
 		}
+		// Remove projectile
 		if p.remflag {
 			if p.ani != nil && (p.ani.totaltime <= 0 || p.ani.AnimTime() == 0) {
 				p.ani = nil
@@ -2587,6 +2604,7 @@ type Char struct {
 	oldPos              [3]float32
 	vel                 [3]float32
 	facing              float32
+	fbFlip              bool
 	cnsvar              map[int32]int32
 	cnsfvar             map[int32]float32
 	cnssysvar           map[int32]int32
@@ -2622,6 +2640,7 @@ type Char struct {
 	kovelocity        bool
 	preserve          int32
 	inputFlag         InputBits
+	inputShift        [][2]int
 	pauseBool         bool
 	downHitOffset     bool
 	koEchoTimer       int32
@@ -2789,17 +2808,17 @@ func (c *Char) prepareNextRound() {
 	}
 	c.updateSizeBox()
 	c.oldPos, c.interPos = c.pos, c.pos
-	if c.helperIndex == 0 && c.teamside != -1 {
+	if c.helperIndex == 0 {
 		if sys.roundsExisted[c.playerNo&1] > 0 {
 			c.palfx.clear()
 		} else {
 			c.palfx = newPalFX()
 		}
-	} else {
-		c.palfx = nil
 		if c.teamside == -1 {
 			c.setSCF(SCF_standby)
 		}
+	} else {
+		c.palfx = nil
 	}
 	c.aimg.timegap = -1
 	c.enemyNearP2Clear()
@@ -3068,6 +3087,7 @@ func (c *Char) load(def string) error {
 	gi.constants["default.legacygamedistancespec"] = 0
 	gi.constants["default.ignoredefeatedenemies"] = 1
 	gi.constants["input.pauseonhitpause"] = 1
+	gi.constants["input.fbflipenemydistance"] = -1
 
 	for _, key := range SortedKeys(sys.cfg.Common.Const) {
 		for _, v := range sys.cfg.Common.Const[key] {
@@ -4233,22 +4253,31 @@ func (c *Char) command(pn, i int) bool {
 	if !c.keyctrl[0] || c.cmd == nil {
 		return false
 	}
+
+	// Get all commands with the specified first index (name)
 	cl := c.cmd[pn].At(i)
-	// Check if any command with that name is buffered
+
+	// Check if any of them are buffered
 	for _, c := range cl {
 		if c.curbuftime > 0 {
 			return true
 		}
 	}
+
 	// AI cheating for commands longer than 1 button
+	// Maybe it could just cheat all of them and skip these checks
 	if c.controller < 0 && len(cl) > 0 {
-		if c.helperIndex != 0 || len(cl[0].cmd) > 1 || len(cl[0].cmd[0].key) > 1 ||
-			int(Btoi(cl[0].cmd[0].slash)) != len(cl[0].hold) {
+		steps := cl[0].steps
+		multiStep := len(steps) > 1
+		multiKey := len(steps) > 0 && len(steps[0].keys) > 1
+
+		if c.helperIndex != 0 || multiStep || multiKey {
 			if i == int(c.cpucmd) {
 				return true
 			}
 		}
 	}
+
 	return false
 }
 
@@ -4261,12 +4290,33 @@ func (c *Char) commandByName(name string) bool {
 }
 
 func (c *Char) assertCommand(name string, time int32) {
-	ok := false
-	// Assert the command in every command list
-	for i := range c.cmd {
-		ok = c.cmd[i].Assert(name, time) || ok
+	// If no command name is provided, select one randomly.
+	if name == "" {
+		cmdList := &c.cmd[c.playerNo]
+		if len(cmdList.Commands) == 0 {
+			return
+		}
+		randomIndex := Rand(0, int32(len(cmdList.Commands)-1))
+		cmdInstances := cmdList.Commands[randomIndex]
+		if len(cmdInstances) == 0 {
+			return
+		}
+		name = cmdInstances[0].name
+		if time <= 0 {
+			time = cmdInstances[0].maxbuftime
+			if time <= 0 {
+				time = 1
+			}
+		}
 	}
-	if !ok {
+
+	// Assert the command in every command list
+	found := false
+	for i := range c.cmd {
+		found = c.cmd[i].Assert(name, time) || found
+	}
+
+	if !found {
 		sys.appendToConsole(c.warn() + fmt.Sprintf("attempted to assert an invalid command: %s", name))
 	}
 }
@@ -4399,7 +4449,31 @@ func (c *Char) isHelper(id int32, idx int) bool {
 }
 
 func (c *Char) isHost() bool {
-	return sys.netConnection != nil && sys.netConnection.host
+	// Local play has no host
+	if sys.netConnection == nil && sys.replayFile == nil {
+		return false
+	}
+
+	// Find first human player like in GetHostGuestRemap()
+	// This doesn't seem ideal somehow, but it's better than not having it
+	// When you think about it, it's almost the same as just returning true for player 1
+	var host int
+	for i, v := range sys.aiLevel {
+		if v == 0 {
+			host = i
+			break
+		}
+	}
+
+	// "host" already defaults to 0 so player 1 is the fallback host
+	return c.playerNo == host
+
+	// TODO: For Tag mode, this should probably return true for all characters controlled by the player
+
+	// For the host, this returned true for any player
+	// For the guest, it returned false for any player
+	// https://github.com/ikemen-engine/Ikemen-GO/issues/2523
+	//return sys.netConnection != nil && sys.netConnection.host
 }
 
 func (c *Char) jugglePoints(id int32) int32 {
@@ -5242,6 +5316,31 @@ func (c *Char) autoTurn() {
 			}
 		}
 		c.setFacing(-c.facing)
+	}
+}
+
+// Flag if B and F directions should reverse, i.e. respectively use R and L
+// In Mugen this is hardcoded to be based on facing
+func (c *Char) updateFBFlip() {
+	setting := c.gi().constants["input.fbflipenemydistance"]
+
+	if setting >= 0 {
+		// See shouldFaceP2()
+		e := c.p2()
+		if e == nil {
+			e = c.p2EnemyBackup
+		}
+		if e != nil {
+			distX := c.rdDistX(e, c).ToF() // Already in the char's localcoord
+
+			if c.facing > 0 {
+				c.fbFlip = distX < -setting
+			} else {
+				c.fbFlip = distX > -setting
+			}
+		}
+	} else {
+		c.fbFlip = (c.facing < 0)
 	}
 }
 
@@ -8224,7 +8323,7 @@ func (c *Char) removeTarget(pid int32) {
 
 // Remove self from the target lists of other players
 func (c *Char) exitTarget() {
-	if c.hittmp >= 0 {
+	if c.hittmp >= 0 { // If not being hit by ReversalDef
 		for _, hb := range c.ghv.targetedBy {
 			if e := sys.playerID(hb[0]); e != nil {
 				if e.hitdef.reversal_attr == 0 || e.hitdef.reversal_attr == -1<<31 {
@@ -8235,8 +8334,10 @@ func (c *Char) exitTarget() {
 			}
 		}
 		c.gethitBindClear()
+		// This line used to be outside the "c.hittmp >= 0" condition, but this happened
+		// https://github.com/ikemen-engine/Ikemen-GO/issues/2581
+		c.ghv.targetedBy = c.ghv.targetedBy[:0]
 	}
-	c.ghv.targetedBy = c.ghv.targetedBy[:0]
 }
 
 func (c *Char) offsetX() float32 {
@@ -9601,9 +9702,9 @@ func (c *Char) actionPrepare() {
 			// In Mugen, characters can perform basic actions even if they are KO
 			if !c.asf(ASF_nohardcodedkeys) {
 				if c.ctrl() {
-					if c.scf(SCF_guard) && c.inguarddist && !c.inGuardState() && c.ss.stateType != ST_L && c.cmd[0].Buffer.B > 0 {
+					if c.scf(SCF_guard) && c.inguarddist && !c.inGuardState() && c.ss.stateType != ST_L && c.cmd[0].Buffer.Bb > 0 {
 						c.changeState(120, -1, -1, "") // Start guarding
-					} else if !c.asf(ASF_nojump) && c.ss.stateType == ST_S && c.cmd[0].Buffer.U > 0 &&
+					} else if !c.asf(ASF_nojump) && c.ss.stateType == ST_S && c.cmd[0].Buffer.Ub > 0 &&
 						(!(sys.intro < 0 && sys.intro > -sys.lifebar.ro.over_waittime) || c.asf(ASF_postroundinput)) {
 						if c.ss.no != 40 {
 							c.changeState(40, -1, -1, "") // Jump
@@ -9615,19 +9716,19 @@ func (c *Char) actionPrepare() {
 							c.airJumpCount++
 							c.changeState(45, -1, -1, "") // Air jump
 						}
-					} else if !c.asf(ASF_nocrouch) && c.ss.stateType == ST_S && c.cmd[0].Buffer.D > 0 {
+					} else if !c.asf(ASF_nocrouch) && c.ss.stateType == ST_S && c.cmd[0].Buffer.Db > 0 {
 						if c.ss.no != 10 {
 							if c.ss.no != 100 {
 								c.vel[0] = 0
 							}
 							c.changeState(10, -1, -1, "") // Stand to crouch
 						}
-					} else if !c.asf(ASF_nostand) && c.ss.stateType == ST_C && c.cmd[0].Buffer.D < 0 {
+					} else if !c.asf(ASF_nostand) && c.ss.stateType == ST_C && c.cmd[0].Buffer.Db < 0 {
 						if c.ss.no != 12 {
 							c.changeState(12, -1, -1, "") // Crouch to stand
 						}
 					} else if !c.asf(ASF_nowalk) && c.ss.stateType == ST_S &&
-						(c.cmd[0].Buffer.F > 0 != ((!c.inguarddist || c.prevNoStandGuard) && c.cmd[0].Buffer.B > 0)) {
+						(c.cmd[0].Buffer.Fb > 0 != ((!c.inguarddist || c.prevNoStandGuard) && c.cmd[0].Buffer.Bb > 0)) {
 						if c.ss.no != 20 {
 							c.changeState(20, -1, -1, "") // Walk
 						}
@@ -9635,7 +9736,7 @@ func (c *Char) actionPrepare() {
 				}
 				// Braking is special in that it does not require ctrl
 				if !c.asf(ASF_nobrake) && c.ss.no == 20 &&
-					(c.cmd[0].Buffer.B > 0) == (c.cmd[0].Buffer.F > 0) {
+					(c.cmd[0].Buffer.Bb > 0) == (c.cmd[0].Buffer.Fb > 0) {
 					c.changeState(0, -1, -1, "")
 				}
 				// At least one character has been found where forcing them to stand up when crouching without ctrl will break them
@@ -9646,7 +9747,6 @@ func (c *Char) actionPrepare() {
 		}
 		if !c.hitPause() {
 			c.specialFlag = 0
-			c.inputFlag = 0
 			c.setCSF(CSF_stagebound)
 			if c.playerFlag {
 				if c.alive() || c.ss.no != 5150 || c.numPartner() == 0 {
@@ -9686,6 +9786,9 @@ func (c *Char) actionPrepare() {
 				c.pauseMovetime--
 			}
 		}
+		// Reset input modifiers
+		c.inputFlag = 0
+		c.inputShift = c.inputShift[:0]
 		// This AssertSpecial flag is special in that it must always reset regardless of hitpause
 		c.unsetASF(ASF_animatehitpause)
 		// The flags in this block are to be reset even during hitpause
@@ -9783,7 +9886,7 @@ func (c *Char) actionRun() {
 	c.unsetSCF(SCF_guard)
 	if ((c.scf(SCF_ctrl) || c.ss.no == 52) &&
 		c.ss.moveType == MT_I || c.inGuardState()) && c.cmd != nil &&
-		(c.cmd[0].Buffer.B > 0 || c.asf(ASF_autoguard)) &&
+		(c.cmd[0].Buffer.Bb > 0 || c.asf(ASF_autoguard)) &&
 		(c.ss.stateType == ST_S && !c.asf(ASF_nostandguard) ||
 			c.ss.stateType == ST_C && !c.asf(ASF_nocrouchguard) ||
 			c.ss.stateType == ST_A && !c.asf(ASF_noairguard)) {
@@ -9793,7 +9896,7 @@ func (c *Char) actionRun() {
 		if c.keyctrl[0] && c.cmd != nil {
 			if c.ctrl() && (c.controller >= 0 || c.helperIndex == 0) {
 				if !c.asf(ASF_nohardcodedkeys) {
-					if c.inguarddist && c.scf(SCF_guard) && !c.inGuardState() && c.cmd[0].Buffer.B > 0 {
+					if c.inguarddist && c.scf(SCF_guard) && !c.inGuardState() && c.cmd[0].Buffer.Bb > 0 {
 						c.changeState(120, -1, -1, "")
 						// In Mugen the characters *can* change to the guarding states during pauses
 						// They can still block in Ikemen despite not changing state here
@@ -10877,8 +10980,12 @@ func (cl *CharList) commandUpdate() {
 					(c.ss.no == 0 || c.ss.no == 11 || c.ss.no == 20 || c.ss.no == 52) {
 					c.autoTurn()
 				}
+
+				// Update Forward/Back flipping flag
+				c.updateFBFlip()
+
 				if (c.helperIndex == 0 || c.helperIndex > 0 && &c.cmd[0] != &root.cmd[0]) &&
-					c.cmd[0].InputUpdate(c.controller, c.facing, sys.aiLevel[i], c.inputFlag, false) {
+					c.cmd[0].InputUpdate(c.controller, c.fbFlip, sys.aiLevel[i], c.inputFlag, c.inputShift, false) {
 					// Clear input buffers and skip the rest of the loop
 					// This used to apply only to the root, but that caused some issues with helper-based custom input systems
 					if c.inputWait() || c.asf(ASF_noinput) {

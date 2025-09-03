@@ -661,11 +661,11 @@ func systemScriptInit(l *lua.LState) {
 			if !nilArg(l, 3) {
 				ffx = boolArg(l, 3)
 			}
-			preffix := ""
+			prefix := ""
 			if ffx {
-				preffix = "f"
+				prefix = "f"
 			}
-			c[0].changeAnim(an, c[0].playerNo, -1, preffix)
+			c[0].changeAnim(an, c[0].playerNo, -1, prefix)
 			if !nilArg(l, 2) {
 				c[0].setAnimElem(int32(numArg(l, 2)), 0)
 			}
@@ -802,15 +802,22 @@ func systemScriptInit(l *lua.LState) {
 		if !ok {
 			userDataError(l, 1, cl)
 		}
-		cm, err := ReadCommand(strArg(l, 2), strArg(l, 3), NewCommandKeyRemap())
-		if err != nil {
+
+		name := strArg(l, 2)
+		cmdstr := strArg(l, 3)
+
+		cm := newCommand()
+		cm.name = name
+		if err := cm.ReadCommandSymbols(cmdstr, NewCommandKeyRemap()); err != nil {
 			l.RaiseError(err.Error())
 		}
+
 		time := cl.DefaultTime
 		buftime := cl.DefaultBufferTime
 		buffer_hitpause := cl.DefaultBufferHitpause
 		buffer_pauseend := cl.DefaultBufferPauseEnd
-		keytime := cl.DefaultKeyTime
+		steptime := cl.DefaultStepTime
+
 		if !nilArg(l, 4) {
 			time = int32(numArg(l, 4))
 		}
@@ -824,13 +831,15 @@ func systemScriptInit(l *lua.LState) {
 			buffer_pauseend = boolArg(l, 7)
 		}
 		if !nilArg(l, 8) {
-			keytime = int32(numArg(l, 8))
+			steptime = int32(numArg(l, 8))
 		}
+
 		cm.maxtime = time
 		cm.maxbuftime = buftime
 		cm.buffer_hitpause = buffer_hitpause
 		cm.buffer_pauseend = buffer_pauseend
-		cm.maxkeytime = keytime
+		cm.maxsteptime = steptime
+
 		cl.Add(*cm)
 		return 0
 	})
@@ -855,7 +864,7 @@ func systemScriptInit(l *lua.LState) {
 		if !ok {
 			userDataError(l, 1, cl)
 		}
-		if cl.InputUpdate(int(numArg(l, 2))-1, 1, 0, 0, true) {
+		if cl.InputUpdate(int(numArg(l, 2))-1, false, 0, 0, nil, true) {
 			cl.Step(false, false, false, false, 0)
 		}
 		return 0
@@ -2916,6 +2925,22 @@ func systemScriptInit(l *lua.LState) {
 			float32(numArg(l, 4))/sys.luaSpriteScale, float32(numArg(l, 5))/sys.luaSpriteScale)
 		return 0
 	})
+	luaRegister(l, "textImgSetXShear", func(*lua.LState) int {
+		ts, ok := toUserData(l, 1).(*TextSprite)
+		if !ok {
+			userDataError(l, 1, ts)
+		}
+		ts.xshear = float32(numArg(l, 2))
+		return 0
+	})
+	luaRegister(l, "textImgSetAngle", func(*lua.LState) int {
+		ts, ok := toUserData(l, 1).(*TextSprite)
+		if !ok {
+			userDataError(l, 1, ts)
+		}
+		ts.angle = float32(numArg(l, 2))
+		return 0
+	})
 	luaRegister(l, "toggleClsnDisplay", func(*lua.LState) int {
 		if !sys.cfg.Debug.AllowDebugMode {
 			return 0
@@ -2986,9 +3011,9 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "toggleLifebarDisplay", func(*lua.LState) int {
 		if !nilArg(l, 1) {
-			sys.lifebarDisplay = boolArg(l, 1)
+			sys.lifebarHide = boolArg(l, 1)
 		} else {
-			sys.lifebarDisplay = !sys.lifebarDisplay
+			sys.lifebarHide = !sys.lifebarHide
 		}
 		return 0
 	})
@@ -5430,7 +5455,7 @@ func triggerFunctions(l *lua.LState) {
 		l.Push(lua.LNumber(sys.consecutiveWins[sys.debugWC.teamside]))
 		return 1
 	})
-	luaRegister(l, "debug", func(*lua.LState) int {
+	luaRegister(l, "debugmode", func(*lua.LState) int {
 		switch strings.ToLower(strArg(l, 1)) {
 		case "accel":
 			l.Push(lua.LNumber(sys.accel))
@@ -5438,8 +5463,8 @@ func triggerFunctions(l *lua.LState) {
 			l.Push(lua.LBool(sys.clsnDisplay))
 		case "debugdisplay":
 			l.Push(lua.LBool(sys.debugDisplay))
-		case "lifebardisplay":
-			l.Push(lua.LBool(sys.lifebarDisplay))
+		case "lifebarhide":
+			l.Push(lua.LBool(sys.lifebarHide))
 		case "roundreset":
 			l.Push(lua.LBool(sys.roundResetFlg))
 		case "wireframedisplay":
@@ -6147,11 +6172,11 @@ func deprecatedFunctions(l *lua.LState) {
 				if l.GetTop() >= 4 {
 					ffx = boolArg(l, 4)
 				}
-				preffix := ""
+				prefix := ""
 				if ffx {
-					preffix = "f"
+					prefix = "f"
 				}
-				c[0].changeAnim(an, c[0].playerNo, -1, preffix)
+				c[0].changeAnim(an, c[0].playerNo, -1, prefix)
 				if l.GetTop() >= 3 {
 					c[0].setAnimElem(int32(numArg(l, 3)), 0)
 				}
@@ -6261,22 +6286,22 @@ func deprecatedFunctions(l *lua.LState) {
 		if l.GetTop() >= 16 { // StopOnChangeState
 			stopcs = boolArg(l, 17)
 		}
-		preffix := ""
+		prefix := ""
 		if f {
-			preffix = "f"
+			prefix = "f"
 		}
 
 		// If the loopcount is 0, then read the loop parameter
 		if lc == 0 {
 			if lp {
-				sys.chars[pn-1][0].playSound(preffix, lw, -1, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
+				sys.chars[pn-1][0].playSound(prefix, lw, -1, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
 			} else {
-				sys.chars[pn-1][0].playSound(preffix, lw, 0, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
+				sys.chars[pn-1][0].playSound(prefix, lw, 0, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
 			}
 
 			// Otherwise, read the loopcount parameter directly
 		} else {
-			sys.chars[pn-1][0].playSound(preffix, lw, lc, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
+			sys.chars[pn-1][0].playSound(prefix, lw, lc, g, n, ch, vo, p, fr, ls, x, false, priority, loopstart, loopend, startposition, stopgh, stopcs)
 		}
 		return 0
 	})

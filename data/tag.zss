@@ -121,7 +121,7 @@ if time = 0 {
 	turn{}
 }
 
-velSet{x: min(ifElse(const(velocity.run.fwd.x) != 0, const(velocity.run.fwd.x), const(velocity.walk.fwd.x) * 2), const240p(const(TagInVelX))); y: 0}
+velSet{x: min(max(ifElse(const(velocity.run.fwd.x) != 0, const(velocity.run.fwd.x), const(velocity.walk.fwd.x) * 2),5), const240p(const(TagInVelX)));y: 0}
 
 if backEdgeDist < -const240p(160) || frontEdgeDist < -const240p(160) {
 	selfState{value: const(StateTagWaitingOutside)}
@@ -245,7 +245,7 @@ ignoreHitPause if roundState = 2 && !isHelper {
 
 if !const(Default.Enable.Tag) || isHelper || teamSide = 0 {
 	# do nothing, global code disabled locally or executed by helper/stage
-} else if roundState = 0 && teamMode = Tag {
+} else if roundState <= 1 && teamMode = Tag && map(_iksys_tagActive) = 0 {
 	map(_iksys_tagActive) := 1;
 	map(_iksys_tagLastId) := 0;
 	map(_iksys_tagPartnerId) := 0;

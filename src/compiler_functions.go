@@ -6409,6 +6409,80 @@ func (c *Compiler) modifyStageBG(is IniSection, sc *StateControllerBase, _ int8)
 	return *ret, err
 }
 
+func (c *Compiler) shiftInput(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
+	inputIndex := func(name string) (int32, error) {
+		switch name {
+		case "U":
+			return 0, nil
+		case "D":
+			return 1, nil
+		case "L":
+			return 2, nil
+		case "R":
+			return 3, nil
+		case "a":
+			return 4, nil
+		case "b":
+			return 5, nil
+		case "c":
+			return 6, nil
+		case "x":
+			return 7, nil
+		case "y":
+			return 8, nil
+		case "z":
+			return 9, nil
+		case "s":
+			return 10, nil
+		case "d":
+			return 11, nil
+		case "w":
+			return 12, nil
+		case "m":
+			return 13, nil
+		case "none":
+			return -1, nil
+		case "B", "F":
+			return -1, Error("'B' and 'F' symbols not accepted. Must be 'L' or 'R'")
+		default:
+			return -1, Error("Invalid key name: " + name)
+		}
+	}
+
+	ret, err := (*shiftInput)(sc), c.stateSec(is, func() error {
+		if err := c.paramValue(is, sc, "redirectid",
+			shiftInput_redirectid, VT_Int, 1, false); err != nil {
+			return err
+		}
+
+		if err := c.stateParam(is, "input", true, func(srcName string) error {
+			srcID, err := inputIndex(srcName)
+			if err != nil {
+				return err
+			}
+			sc.add(shiftInput_input, sc.iToExp(srcID))
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		if err := c.stateParam(is, "output", true, func(dstName string) error {
+			dstID, err := inputIndex(dstName)
+			if err != nil {
+				return err
+			}
+			sc.add(shiftInput_output, sc.iToExp(dstID))
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return *ret, err
+}
+
 // It's just a Null... Has no effect whatsoever.
 func (c *Compiler) null(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	return nullStateController, nil
