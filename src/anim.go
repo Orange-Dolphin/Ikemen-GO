@@ -1546,6 +1546,7 @@ func CopyAnim(a *Anim) (*Anim) {
 		newAnim.anim.looptime = a.anim.looptime
 		newAnim.anim.loopstart = a.anim.loopstart
 		newAnim.anim.curtime = a.anim.curtime
+		newAnim.anim.curelem = a.anim.curelem
 		newAnim.anim.totaltime = a.anim.totaltime
 		newAnim.anim.frames = a.anim.frames
 		newAnim.anim.interpolate_blend_srcalpha = a.anim.interpolate_blend_srcalpha
