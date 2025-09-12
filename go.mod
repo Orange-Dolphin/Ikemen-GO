@@ -5,6 +5,7 @@ go 1.20
 replace github.com/gopxl/beep/v2 => github.com/gopxl/beep/v2 v2.1.1-0.20240921133731-defe79638e99
 
 require (
+	github.com/assemblaj/ggpo v0.0.0-20241121212120-467f3782a9cf
 	github.com/flopp/go-findfont v0.1.0
 	github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a
@@ -40,6 +41,7 @@ require (
 	github.com/mdouchement/hdr v0.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/samhocevar/go-meltysynth v0.0.0-20230403180939-aca4a036cb16 // indirect
+	golang.org/x/exp v0.0.0-20220609121020-a51bd0440498
 	golang.org/x/image v0.22.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
 )

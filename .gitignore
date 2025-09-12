@@ -19,21 +19,7 @@ external/script/.idea/*
 ScreenpackLicense.txt
 chars/*
 data/big/*
-data/common.snd
-data/fight.def
-data/fight.sff
-data/fight.snd
-data/fightfx.air
-data/fightfx.sff
-data/glyphs.sff
-data/gofx*
-data/kfm/*
-data/mugen1/*
-data/select.def
-data/system.def
-data/system.sff
-data/system.snd
-data/work/*
+data/*
 font/*
 !font/Open_Sans/
 !font/debug.def
@@ -44,6 +30,7 @@ font/*
 stages/*
 sound/*
 debug/*
+video/*
 
 # Temp
 src/lua_triggers.go

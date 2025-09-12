@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
@@ -107,11 +106,10 @@ func newSwapSeeker(ss beep.StreamSeeker) *SwapSeeker {
 	return &SwapSeeker{ss: ss}
 }
 
-// Swap(next, absStart): next - new seeker; absStart - the
-// absolute sample index that @next's position 0 represents.
-func (sw *SwapSeeker) Swap(next beep.StreamSeeker, absStart int) {
-	sw.mu.Lock()
+// Swap(next, absStart): next - new seeker
+func (sw *SwapSeeker) Swap(next beep.StreamSeeker) {
 	speaker.Lock()
+	sw.mu.Lock()
 	pos := sw.ss.Position()
 
 	if ln := next.Len(); ln <= 0 { // guard against 0
@@ -397,8 +395,8 @@ func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd,
 	bgm.streamer.Seek(startPosition)
 	speaker.Play(bgm.ctrl)
 
-	// Handle the RAM swap in the background (only for looped BGM)
-	if lc != 0 {
+	// Handle the RAM swap in the background (only for looped BGM and only if the user enabled it)
+	if lc != 0 && sys.cfg.Sound.BGMRAMBuffer {
 		go func(ctx context.Context) {
 			// Call the cancel function when the goroutine exits
 			// to ensure cleanup.
@@ -407,15 +405,6 @@ func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd,
 				bgm.cancel()
 				bgm.mu.Unlock()
 			}()
-
-			currentPos := bgm.streamer.Position()
-			// Try to do the swap 2 seconds before the loop
-			margin := format.SampleRate.N(2 * time.Second)
-
-			if currentPos >= bgmLoopEnd-margin {
-				sys.errLog.Println("Not enough time to buffer BGM before loop - skipping RAM swap.")
-				return
-			}
 
 			// We're gonna be using this a lot to check cancellation.
 			isCancelled := func() bool {
@@ -464,37 +453,6 @@ func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd,
 					return
 				}
 				dec, _, err = midi.Decode(lf, sf, bgm.sampleRate)
-				if err != nil {
-					sys.errLog.Println(err)
-					return
-				}
-
-				dec.Seek(0)
-				buf := beep.NewBuffer(format)
-				buf.Append(beep.Take(dec.Len(), dec))
-				lf.Close() // even if midi.Decode already does this (just to be safe)
-
-				// Don't ask why but there can be a mismatch between samples retrieved
-				// from the previous operation vs. this operation (i.e. we cannot trust
-				// the sample length from the initial decode; we must recalculate the
-				// loop end if people have it at the end of their track)
-				memSeeker := newBufferSeeker(buf)
-				if sl, ok := streamer.(*StreamLooper); ok {
-					sl.loopend = MinI(memSeeker.Len(), sl.loopend)
-				}
-				if memSeeker.Len() == 0 {
-					sys.errLog.Println("Empty MIDI buffer after loop span extraction - aborting swap")
-					return
-				}
-
-				// New BGM was queued up, return NOW
-				if isCancelled() {
-					return
-				}
-
-				// Immediate swap - DO NOT wait for margin (because MIDI is fickle with sample counts - see above)
-				sw.Swap(memSeeker, 0)
-				return
 			}
 			if err != nil {
 				sys.errLog.Println(err)
@@ -506,7 +464,7 @@ func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd,
 			buf := beep.NewBuffer(format)
 			buf.Append(beep.Take(dec.Len(), dec))
 
-			// close if this decoder supports it (all but MIDI but we don't get here with that anyway)
+			// close if this decoder supports it (all but MIDI)
 			if c, ok := dec.(io.Closer); ok {
 				c.Close()
 			}
@@ -514,22 +472,22 @@ func (bgm *Bgm) Open(filename string, loop, bgmVolume, bgmLoopStart, bgmLoopEnd,
 
 			// Now create the new bufferSeeker
 			memSeeker := newBufferSeeker(buf)
-			ticker := time.NewTicker(10 * time.Millisecond)
-			defer ticker.Stop()
 
+			// just swap it now so we're not keeping threads open
 			if memSeeker.Len() > 0 {
+				// There can sometimes be a sample mismatch with re-decoding MIDI so this takes care of that
+				if sl, ok := streamer.(*StreamLooper); ok {
+					sl.loopend = MinI(memSeeker.Len(), sl.loopend)
+				}
+
 				for {
 					select {
 					case <-ctx.Done():
 						// Cancelled by a new call to bgm.Open()
 						return
-					case <-ticker.C:
-						// Woke up to check the position
-						if bgm.streamer.Position() >= bgmLoopEnd-margin {
-							// Check if we're within the "swap" margin then pop, lock, and swap it (swap method handles locking now)
-							sw.Swap(memSeeker, 0)
-							return
-						}
+					default:
+						sw.Swap(memSeeker)
+						return
 					}
 				}
 			}

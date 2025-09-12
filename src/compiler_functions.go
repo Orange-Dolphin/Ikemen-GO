@@ -4602,6 +4602,13 @@ func (c *Compiler) loadFile(is IniSection, sc *StateControllerBase, _ int8) (Sta
 	})
 	return *ret, err
 }
+func (c *Compiler) loadState(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
+	ret, err := (*loadState)(sc), c.stateSec(is, func() error {
+		sc.add(loadState_, nil)
+		return nil
+	})
+	return *ret, err
+}
 
 // TODO: Remove boilderplate from the Map's Compiler.
 func (c *Compiler) mapSetSub(is IniSection, sc *StateControllerBase) error {
@@ -5209,6 +5216,14 @@ func (c *Compiler) saveFile(is IniSection, sc *StateControllerBase, _ int8) (Sta
 		if err := c.paramSaveData(is, sc, saveFile_saveData); err != nil {
 			return err
 		}
+		return nil
+	})
+	return *ret, err
+}
+
+func (c *Compiler) saveState(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
+	ret, err := (*saveState)(sc), c.stateSec(is, func() error {
+		sc.add(saveState_, nil)
 		return nil
 	})
 	return *ret, err
@@ -6440,11 +6455,14 @@ func (c *Compiler) shiftInput(is IniSection, sc *StateControllerBase, _ int8) (S
 			return 12, nil
 		case "m":
 			return 13, nil
-		case "none":
-			return -1, nil
 		case "B", "F":
 			return -1, Error("'B' and 'F' symbols not accepted. Must be 'L' or 'R'")
 		default:
+			// This one is case insensitive
+			if strings.ToLower(name) == "none" {
+				return -1, nil
+			}
+			// Unknown
 			return -1, Error("Invalid key name: " + name)
 		}
 	}

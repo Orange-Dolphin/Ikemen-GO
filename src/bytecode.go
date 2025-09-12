@@ -11011,6 +11011,24 @@ func (sc loadFile) Run(c *Char, _ []int32) bool {
 	return false
 }
 
+type loadState StateControllerBase
+
+const (
+	loadState_ byte = iota
+)
+
+func (sc loadState) Run(c *Char, _ []int32) bool {
+	//crun := c
+	StateControllerBase(sc).run(c, func(id byte, exp []BytecodeExp) bool {
+		switch id {
+		case loadState_:
+			sys.loadStateFlag = true
+		}
+		return true
+	})
+	return false
+}
+
 type mapSet StateControllerBase
 
 const (
@@ -11331,6 +11349,24 @@ func (sc saveFile) Run(c *Char, _ []int32) bool {
 			}
 		}
 	}
+	return false
+}
+
+type saveState StateControllerBase
+
+const (
+	saveState_ byte = iota
+)
+
+func (sc saveState) Run(c *Char, _ []int32) bool {
+	//crun := c
+	StateControllerBase(sc).run(c, func(id byte, exp []BytecodeExp) bool {
+		switch id {
+		case saveState_:
+			sys.saveStateFlag = true
+		}
+		return true
+	})
 	return false
 }
 

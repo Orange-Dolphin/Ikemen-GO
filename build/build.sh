@@ -16,6 +16,9 @@ function main() {
 	# Enable CGO.
 	export CGO_ENABLED=1
 
+	# Enable arenas (required for rollback)
+	export GOEXPERIMENT=arenas
+
 	# Create "bin" folder.
 	mkdir -p bin
 
@@ -35,6 +38,10 @@ function main() {
 		[wW][iI][nN]32)
 			varWin32
 			buildWin
+		;;
+		[mM][aA][cC][oO][sS][aA][rR][mM])
+			varMacOSARM
+			build
 		;;
 		[mM][aA][cC][oO][sS])
 			varMacOS
@@ -77,8 +84,24 @@ function varWin64() {
 	binName="Ikemen_GO.exe"
 }
 
+function varMacOSARM() {
+	export GOOS=darwin
+	export GOARCH=arm64
+	case "${currentOS}" in
+		[mM][aA][cC][oO][sS])
+			export CC=clang
+			export CXX=clang++
+		;;
+		*)
+			export CC=o64-clang
+			export CXX=o64-clang++
+		;;
+	esac
+	binName="Ikemen_GO_MacOSARM"
+}
 function varMacOS() {
 	export GOOS=darwin
+	export GOARCH=amd64
 	case "${currentOS}" in
 		[mM][aA][cC][oO][sS])
 			export CC=clang

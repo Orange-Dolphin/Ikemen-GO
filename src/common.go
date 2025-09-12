@@ -1007,10 +1007,10 @@ func (l *Layout) Read(pre string, is IniSection) {
 	is.ReadF32(pre+"angle", &l.angle)
 	is.ReadF32(pre+"xshear", &l.xshear)
 	if is.ReadI32(pre+"window", &l.window[0], &l.window[1], &l.window[2], &l.window[3]) {
-		l.window[0] = int32(float32(l.window[0]) * float32(sys.scrrect[2]) / float32(sys.lifebarLocalcoord[0]))
-		l.window[1] = int32(float32(l.window[1]) * float32(sys.scrrect[3]) / float32(sys.lifebarLocalcoord[1]))
-		l.window[2] = int32(float32(l.window[2]) * float32(sys.scrrect[2]) / float32(sys.lifebarLocalcoord[0]))
-		l.window[3] = int32(float32(l.window[3]) * float32(sys.scrrect[3]) / float32(sys.lifebarLocalcoord[1]))
+		l.window[0] = int32(float32(l.window[0]) * float32(sys.scrrect[2]/sys.lifebarLocalcoord[0]))
+		l.window[1] = int32(float32(l.window[1]) * float32(sys.scrrect[3]/sys.lifebarLocalcoord[1]))
+		l.window[2] = int32(float32(l.window[2]) * float32(sys.scrrect[2]/sys.lifebarLocalcoord[0]))
+		l.window[3] = int32(float32(l.window[3]) * float32(sys.scrrect[3]/sys.lifebarLocalcoord[1]))
 		window := l.window
 		if window[2] < window[0] {
 			l.window[2] = window[0]
@@ -1043,23 +1043,9 @@ func (l *Layout) DrawFaceSprite(x, y float32, ln int16, s *Sprite, fx *PalFX, fs
 		xshear := -l.xshear
 		xsoffset := xshear * (float32(s.Offset[1]) * l.scale[1] * fscale)
 
-		drawwindow := window
-
-		if *window != sys.scrrect {
-			w := window
-
-			var fwin [4]int32
-			fwin[0] = int32(float32(w[0]))
-			fwin[1] = int32(float32(w[1]) * fscale)
-			fwin[2] = int32(float32(w[2]))
-			fwin[3] = int32(float32(w[3]) * fscale)
-
-			drawwindow = &fwin
-		}
-
 		s.Draw(x+l.offset[0]*sys.lifebarScale-xsoffset, y+l.offset[1]*sys.lifebarScale,
 			l.scale[0]*float32(l.facing)*fscale, l.scale[1]*float32(l.vfacing)*fscale,
-			xshear, Rotation{l.angle, 0, 0}, fx, drawwindow)
+			xshear, Rotation{l.angle, 0, 0}, fx, window)
 	}
 }
 

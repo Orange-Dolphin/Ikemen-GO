@@ -638,8 +638,13 @@ type HitDef struct {
 }
 
 func (hd *HitDef) clear(c *Char, localscl float32) {
-	// Convert local scale back to 4:3 in order to keep values consistent in widescreen
-	originLs := localscl * (320 / float32(sys.gameWidth))
+	var originLs float32
+	if c.gi().constants["default.legacyfallyvelyaccel"] == 1 {
+		originLs = 1
+	} else {
+		// Convert local scale back to 4:3 in order to keep values consistent in widescreen
+		originLs = c.localscl * (320 / float32(sys.gameWidth))
+	}
 
 	*hd = HitDef{
 		isprojectile:       false,
@@ -851,8 +856,13 @@ type GetHitVar struct {
 }
 
 func (ghv *GetHitVar) clear(c *Char) {
-	// Convert local scale back to 4:3 in order to keep values consistent in widescreen
-	originLs := c.localscl * (320 / float32(sys.gameWidth))
+	var originLs float32
+	if c.gi().constants["default.legacyfallyvelyaccel"] == 1 {
+		originLs = 1
+	} else {
+		// Convert local scale back to 4:3 in order to keep values consistent in widescreen
+		originLs = c.localscl * (320 / float32(sys.gameWidth))
+	}
 
 	*ghv = GetHitVar{
 		hittime:        -1,
@@ -3085,7 +3095,8 @@ func (c *Char) load(def string) error {
 	gi.constants["default.lifetoredlifemul"] = 0.75
 	gi.constants["super.lifetoredlifemul"] = 0.75
 	gi.constants["default.legacygamedistancespec"] = 0
-	gi.constants["default.ignoredefeatedenemies"] = 1
+	gi.constants["default.legacyfallyvelyaccel"] = 0
+	//gi.constants["default.ignoredefeatedenemies"] = 0
 	gi.constants["input.pauseonhitpause"] = 1
 	gi.constants["input.fbflipenemydistance"] = -1
 
@@ -4450,7 +4461,7 @@ func (c *Char) isHelper(id int32, idx int) bool {
 
 func (c *Char) isHost() bool {
 	// Local play has no host
-	if sys.netConnection == nil && sys.replayFile == nil {
+	if sys.netConnection == nil && sys.replayFile == nil && sys.rollback.session == nil {
 		return false
 	}
 
@@ -9723,7 +9734,7 @@ func (c *Char) actionPrepare() {
 							}
 							c.changeState(10, -1, -1, "") // Stand to crouch
 						}
-					} else if !c.asf(ASF_nostand) && c.ss.stateType == ST_C && c.cmd[0].Buffer.Db < 0 {
+					} else if !c.asf(ASF_nostand) && c.ss.stateType == ST_C && c.cmd[0].Buffer.Db <= 0 {
 						if c.ss.no != 12 {
 							c.changeState(12, -1, -1, "") // Crouch to stand
 						}

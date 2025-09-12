@@ -6,6 +6,7 @@ import (
 	"path"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -65,6 +66,7 @@ func main() {
 	// Make save directories, if they don't exist
 	os.Mkdir("save", os.ModeSticky|0755)
 	os.Mkdir("save/replays", os.ModeSticky|0755)
+	os.Mkdir("save/logs", os.ModeSticky|0755)
 
 	processCommandLine()
 
@@ -140,15 +142,38 @@ func processCommandLine() {
 	// If there are command line arguments
 	if len(os.Args[1:]) > 0 {
 		sys.cmdFlags = make(map[string]string)
+		boolFlags := map[string]bool{
+			"-windowed":       true,
+			"-togglelifebars": true,
+			"-maxpowermode":   true,
+			"-debug":          true,
+			"-nojoy":          true,
+			"-nomusic":        true,
+			"-nosound":        true,
+			"-speedtest":      true,
+		}
 		key := ""
 		player := 1
+		flagsEncountered := false // New variable to track if any flags have been encountered
 		r1, _ := regexp.Compile("^-[h%?]$")
 		r2, _ := regexp.Compile("^-")
 		// Loop through arguments
 		for _, a := range os.Args[1:] {
-			// If getting help about command line options
-			if r1.MatchString(a) {
-				text := `Options (case sensitive):
+			// Check if the current argument 'a' is a flag (starts with '-')
+			// Check if 'a' is a number (could be negative)
+			_, err := strconv.ParseFloat(a, 64)
+			isNumber := err == nil
+
+			// If there was a flag 'key' expecting a value, and 'a' is a number or not a flag
+			if key != "" && (isNumber || !r2.MatchString(a)) { // If 'a' is a number OR 'a' is not a flag, it's a value for 'key'
+				sys.cmdFlags[key] = a // Assign 'a' as the value for 'key'
+				key = ""              // Value consumed, clear key.
+			} else if r2.MatchString(a) { // 'a' is a flag (starts with '-')
+				flagsEncountered = true // A flag has been encountered
+
+				// If getting help about command line options
+				if r1.MatchString(a) {
+					text := `Options (case sensitive):
 -h -?                   Help
 -log <logfile>          Records match data to <logfile>
 -r <path>               Loads motif <path>. eg. -r motifdir or -r motifdir/system.def
@@ -158,7 +183,7 @@ func processCommandLine() {
 -width <num>            Sets game width
 -height <num>           Sets game height
 -setvolume <num>        Sets master volume to <num> (0-100)
-
+	
 Quick VS Options:
 -p<n> <playername>      Loads player n, eg. -p3 kfm
 -p<n>.ai <level>        Sets player n's AI to <level>, eg. -p1.ai 8
@@ -170,7 +195,7 @@ Quick VS Options:
 -time <num>             Round time (-1 to disable)
 -rounds <num>           Plays for <num> rounds, and then quits
 -s <stagename>          Loads stage <stagename>
-
+	
 Debug Options:
 -nojoy                  Disables joysticks
 -nomusic                Disables music
@@ -178,31 +203,35 @@ Debug Options:
 -togglelifebars         Disables display of the Life and Power bars
 -maxpowermode           Enables auto-refill of Power bars
 -ailevel <level>        Changes game difficulty setting to <level> (1-8)
--speed <speed>          Changes game speed setting to <speed> (10%%-200%%)
+-speed <speed>          Changes game speed setting to <speed> (-9 to 9)
 -stresstest <frameskip> Stability test (AI matches at speed increased by <frameskip>)
 -speedtest              Speed test (match speed x100)`
-				//ShowInfoDialog(text, "I.K.E.M.E.N Command line options")
-				fmt.Printf("I.K.E.M.E.N Command line options\n\n" + text + "\nPress ENTER to exit")
-				var s string
-				fmt.Scanln(&s)
-				os.Exit(0)
-				// If a control argument starting with - (eg. -p3, -s, -rounds)
-			} else if r2.MatchString(a) {
-				// Set a blank value for the key to start with
-				sys.cmdFlags[a] = ""
-				// Prepare the key for the next argument
-				key = a
-				// If an argument with no key
-			} else if key == "" {
-				// Set p1/p2's name
+					//ShowInfoDialog(text, "I.K.E.M.E.N Command line options")
+					fmt.Printf("I.K.E.M.E.N Command line options\n\n" + text + "\nPress ENTER to exit")
+					var s string
+					fmt.Scanln(&s)
+					os.Exit(0)
+				}
+				// If 'a' is a boolean flag, set its value to "true".
+				if _, isBool := boolFlags[a]; isBool {
+					sys.cmdFlags[a] = "true"
+					// key remains "" because boolean flags don't consume the next argument.
+				} else {
+					// 'a' is a value-expecting flag. Set its value to blank and store its name in 'key'.
+					sys.cmdFlags[a] = ""
+					key = a // Now 'key' expects a value in the next iteration.
+				}
+			} else if !flagsEncountered && player <= 2 { // Only assign to -p1 or -p2 if no flag has been encountered yet and player count is within limit
+				// This block handles initial positional player names like "kfm kfm"
 				sys.cmdFlags[fmt.Sprintf("-p%v", player)] = a
 				player += 1
-				// If a key is prepared for this argument
-			} else {
-				// Set the argument for this key
-				sys.cmdFlags[key] = a
-				key = ""
 			}
+			// If key is empty and player > 2, and it's not a flag, then it's an unhandled positional argument.
+			// We just ignore it in this case to prevent the 8/8.def error.
+		}
+		// After the loop, if a key is still waiting for a value, set it to "true".
+		if key != "" {
+			sys.cmdFlags[key] = "true"
 		}
 	}
 }

@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -190,6 +191,15 @@ var input = Input{
 		glfw.Joystick16},
 }
 
+func (input *Input) UpdateGamepadMappings(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		sys.errLog.Printf("%v", err)
+		return
+	}
+	glfw.UpdateGamepadMappings(string(b))
+}
+
 func (input *Input) GetMaxJoystickCount() int {
 	return len(input.joystick)
 }
@@ -281,7 +291,40 @@ func CheckAxisForTrigger(joy int, axes *[]float32) string {
 			os := runtime.GOOS
 			joyName := name + "." + os + "." + runtime.GOARCH + ".glfw"
 
-			if strings.Contains(name, "XInput") || strings.Contains(name, "X360") ||
+			// Handle the user-defined axis skipping case first
+			if strings.Contains(name, "AxisSkip") {
+				parts := strings.Split(name, "_")[1:]
+				uniqueAxes := make(map[int]struct{})
+				shouldSkipAxis := false
+
+				for _, part := range parts {
+					// Skip empty parts that might result from trailing underscores.
+					if part == "" {
+						continue
+					}
+					n, err := strconv.Atoi(part)
+					if err != nil {
+						// This part is not a valid number, so we skip it.
+						fmt.Printf("[input_glfw.go][checkAxisForTrigger] Warning: could not parse '%s' into a number, skipping.\n", part)
+						continue
+					}
+					uniqueAxes[n] = struct{}{}
+				}
+
+				for n := range uniqueAxes {
+					if i == n {
+						// do nothing
+						shouldSkipAxis = true
+						break
+					}
+				}
+
+				if !shouldSkipAxis {
+					s = strconv.Itoa(-i*2 - 1)
+					fmt.Printf("[input_glfw.go][checkAxisForTrigger] 1.AXIS joy=%v i=%v s:%v axes[i]=%v, name = %s\n", joy, i, s, (*axes)[i], name)
+					break
+				}
+			} else if strings.Contains(name, "XInput") || strings.Contains(name, "X360") ||
 				strings.Contains(name, "Xbox Wireless") || strings.Contains(name, "Xbox Elite") || strings.Contains(name, "Xbox One") ||
 				strings.Contains(name, "Xbox Series") || strings.Contains(name, "Xbox Adaptive") {
 				if (i == 4 || i == 5) && os == "windows" {
@@ -289,7 +332,7 @@ func CheckAxisForTrigger(joy int, axes *[]float32) string {
 				} else if (i == 2 || i == 5) && os != "windows" {
 					// do nothing
 				}
-			} else if (i == 4 || i == 5) && joyName == "PS4 Controller.windows.amd64.sdl" {
+			} else if (i == 4 || i == 5) && (joyName == "PS4 Controller.windows.amd64.sdl" || (strings.Contains(name, "Atari Game") && os != "windows")) {
 				// do nothing
 			} else if (i == 2 || i == 5) && joyName == "Steam Virtual Gamepad.linux.amd64.glfw" {
 				// do nothing

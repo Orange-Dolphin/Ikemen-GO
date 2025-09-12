@@ -1,6 +1,7 @@
 package main
 
 import (
+	"arena"
 	"bufio"
 	"fmt"
 	"image"
@@ -72,6 +73,16 @@ var sys = System{
 	luaPortraitScale:     1,
 	lifebarScale:         1,
 	lifebarPortraitScale: 1,
+	saveState:            NewGameState(),
+	statePool:            NewGameStatePool(),
+	savePool:             NewGameStatePool(),
+	loadPool:             NewGameStatePool(),
+	luaStringVars:        make(map[string]string),
+	luaNumVars:           make(map[string]float32),
+	luaTables:            make([]*lua.LTable, 0),
+	commandLists:         make([]*CommandList, 0),
+	arenaSaveMap:         make(map[int]*arena.Arena),
+	arenaLoadMap:         make(map[int]*arena.Arena),
 }
 
 type TeamMode int32
@@ -246,7 +257,6 @@ type System struct {
 	whitePalTex             Texture
 	usePalette				bool
 	//FLAC_FrameWait          int
-
 	// Localcoord sceenpack
 	luaLocalcoord    [2]int32
 	luaSpriteScale   float32
@@ -278,7 +288,6 @@ type System struct {
 	consecutiveRounds bool
 	firstAttack       [3]int
 	teamLeader        [2]int
-	gameSpeed         float32
 	maxPowerMode      bool
 	clsnText          []ClsnText
 	consoleText       []string
@@ -300,6 +309,22 @@ type System struct {
 	brightnessOld     int32
 	loopBreak         bool
 	loopContinue      bool
+
+	statePool       GameStatePool
+	luaStringVars   map[string]string
+	luaNumVars      map[string]float32
+	luaTables       []*lua.LTable
+	commandLists    []*CommandList
+	arenaSaveMap    map[int]*arena.Arena
+	arenaLoadMap    map[int]*arena.Arena
+	rollbackStateID int
+	savePool        GameStatePool
+	loadPool        GameStatePool
+	rollback        RollbackSystem
+	rollbackConfig  RollbackProperties
+	saveState       *GameState
+	saveStateFlag   bool
+	loadStateFlag   bool
 
 	// for avg. FPS calculations
 	gameFPS       float32
@@ -323,6 +348,9 @@ func (s *System) init(w, h int32) *lua.LState {
 	// Create a system window.
 	s.window, err = s.newWindow(int(s.scrrect[2]), int(s.scrrect[3]))
 	chk(err)
+
+	// Update the gamepad mappings with user mappings, if present.
+	input.UpdateGamepadMappings(sys.cfg.Config.GamepadMappings)
 
 	// Correct the joystick mappings (macOS)
 	if runtime.GOOS == "darwin" {
@@ -348,6 +376,17 @@ func (s *System) init(w, h int32) *lua.LState {
 					}
 				}
 			}
+		}
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Println("Error getting executable path:", err)
+	} else {
+		// Change the context for Darwin if we're in an app bundle
+		if isRunningInsideAppBundle(exePath) {
+			os.Chdir(path.Dir(exePath))
+			os.Chdir("../../../")
 		}
 	}
 
@@ -423,16 +462,6 @@ func (s *System) init(w, h int32) *lua.LState {
 		s.windowMainIcon = make([]image.Image, len(s.cfg.Config.WindowIcon))
 		// And then we load them.
 		for i, iconLocation := range s.cfg.Config.WindowIcon {
-			exePath, err := os.Executable()
-			if err != nil {
-				fmt.Println("Error getting executable path:", err)
-			} else {
-				// Change the context for Darwin if we're in an app bundle
-				if isRunningInsideAppBundle(exePath) {
-					os.Chdir(path.Dir(exePath))
-					os.Chdir("../../../")
-				}
-			}
 			f[i], err = os.Open(iconLocation)
 			if err != nil {
 				var dErr = "Icon file can not be found.\nPanic: " + err.Error()
@@ -463,6 +492,9 @@ func (s *System) init(w, h int32) *lua.LState {
 func (s *System) shutdown() {
 	if !sys.gameEnd {
 		sys.gameEnd = true
+	}
+	if sys.rollback.session != nil && sys.rollback.session.recording != nil {
+		sys.rollback.session.SaveReplay()
 	}
 	gfx.Close()
 	s.window.Close()
@@ -514,13 +546,24 @@ func (s *System) await(fps int) bool {
 		// the screen if network input is present.
 		defer gfx.BeginFrame(sys.netConnection == nil)
 	}
+
 	s.runMainThreadTask()
+
 	now := time.Now()
 	diff := s.redrawWait.nextTime.Sub(now)
-	wait := time.Second / time.Duration(fps)
-	s.redrawWait.nextTime = s.redrawWait.nextTime.Add(wait)
+
+	var waitDuration time.Duration
+
+	if s.rollback.session != nil {
+		waitDuration = s.rollback.session.loopTimer.usToWaitThisLoop()
+	} else {
+		waitDuration = time.Second / time.Duration(fps)
+	}
+
+	s.redrawWait.nextTime = s.redrawWait.nextTime.Add(waitDuration)
+
 	switch {
-	case diff >= 0 && diff < wait+2*time.Millisecond:
+	case diff >= 0 && diff < waitDuration+2*time.Millisecond:
 		time.Sleep(diff)
 		fallthrough
 	case now.Sub(s.redrawWait.lastDraw) > 250*time.Millisecond:
@@ -530,20 +573,77 @@ func (s *System) await(fps int) bool {
 		s.frameSkip = false
 	default:
 		if diff < -150*time.Millisecond {
-			s.redrawWait.nextTime = now.Add(wait)
+			s.redrawWait.nextTime = now.Add(waitDuration)
 		}
 		s.frameSkip = true
 	}
+
 	s.eventUpdate()
 
 	return !s.gameEnd
 }
 
+func (s *System) renderFrame() {
+	if !s.frameSkip {
+		x, y, scl := s.cam.Pos[0], s.cam.Pos[1], s.cam.Scale/s.cam.BaseScale()
+		dx, dy, dscl := x, y, scl
+		if s.enableZoomtime > 0 {
+			if !s.debugPaused() {
+				s.zoomPosXLag += ((s.zoomPos[0] - s.zoomPosXLag) * (1 - s.zoomlag))
+				s.zoomPosYLag += ((s.zoomPos[1] - s.zoomPosYLag) * (1 - s.zoomlag))
+				s.drawScale = s.drawScale / (s.drawScale + (s.zoomScale*scl-s.drawScale)*s.zoomlag) * s.zoomScale * scl
+			}
+			if s.zoomStageBound {
+				dscl = MaxF(s.cam.MinScale, s.drawScale/s.cam.BaseScale())
+				if s.zoomCameraBound {
+					dx = x + ClampF(s.zoomPosXLag/scl, -s.cam.halfWidth/scl*2*(1-1/s.zoomScale), s.cam.halfWidth/scl*2*(1-1/s.zoomScale))
+				} else {
+					dx = x + s.zoomPosXLag/scl
+				}
+				dx = s.cam.XBound(dscl, dx)
+			} else {
+				dscl = s.drawScale / s.cam.BaseScale()
+				dx = x + s.zoomPosXLag/scl
+			}
+			dy = y + s.zoomPosYLag/scl
+		} else {
+			s.zoomlag = 0
+			s.zoomPosXLag = 0
+			s.zoomPosYLag = 0
+			s.zoomScale = 1
+			s.zoomPos = [2]float32{0, 0}
+			s.drawScale = s.cam.Scale
+		}
+		s.draw(dx, dy, dscl)
+	}
+
+	// Render top elements such as fade effects
+	if !s.frameSkip {
+		s.drawTop()
+	}
+
+	// Lua code is executed after drawing the fade effects, so that the menus are on top of them
+	for _, key := range SortedKeys(sys.cfg.Common.Lua) {
+		for _, v := range sys.cfg.Common.Lua[key] {
+			if err := s.luaLState.DoString(v); err != nil {
+				s.luaLState.RaiseError(err.Error())
+			}
+		}
+	}
+
+	// Render debug elements
+	if !s.frameSkip && s.debugDisplay {
+		s.drawDebugText()
+	}
+}
+
 func (s *System) update() bool {
 	s.frameCounter++
+
 	if s.gameTime == 0 {
 		s.preFightTime = s.frameCounter
 	}
+
 	if s.replayFile != nil {
 		if s.anyHardButton() {
 			s.await(s.cfg.Config.Framerate * 4)
@@ -552,10 +652,12 @@ func (s *System) update() bool {
 		}
 		return s.replayFile.Update()
 	}
+
 	if s.netConnection != nil {
 		s.await(s.cfg.Config.Framerate)
 		return s.netConnection.Update()
 	}
+
 	return s.await(s.cfg.Config.Framerate)
 }
 
@@ -662,6 +764,9 @@ func (s *System) anyButton() bool {
 	}
 	if s.netConnection != nil {
 		return s.netConnection.AnyButton()
+	}
+	if s.rollback.session != nil {
+		return s.rollback.anyButton()
 	}
 	return s.anyHardButton()
 }
@@ -1157,6 +1262,8 @@ func (s *System) clearPlayerAssets(pn int, destroy bool) {
 func (s *System) nextRound() {
 	s.resetGblEffect()
 	s.lifebar.reset()
+	s.saveStateFlag = false
+	s.loadStateFlag = false
 	s.firstAttack = [3]int{-1, -1, 0}
 	s.finishType = FT_NotYet
 	s.winTeam = -1
@@ -1520,7 +1627,9 @@ func (s *System) action() {
 		if s.roundEnd() || fin() {
 			rs4t := -s.lifebar.ro.over_waittime
 			fadeoutStart := rs4t - 2 - s.lifebar.ro.over_time + s.lifebar.ro.rt.fadeout_time
+
 			s.intro--
+
 			if s.intro == -s.lifebar.ro.over_hittime && s.finishType != FT_NotYet {
 				// Consecutive wins counter
 				winner := [...]bool{!s.chars[1][0].win(), !s.chars[0][0].win()}
@@ -1539,11 +1648,24 @@ func (s *System) action() {
 					}
 				}
 			}
+
 			// Check if player skipped win pose time
-			if s.intro > fadeoutStart && s.roundWinTime() && (s.anyButton() && !s.gsf(GSF_roundnotskip)) {
-				s.intro = fadeoutStart
+			if !s.winskipped && s.roundWinTime() && s.anyButton() && !s.gsf(GSF_roundnotskip) {
+				s.intro = Min(s.intro, fadeoutStart)
 				s.winskipped = true
 			}
+
+			// Start fadeout effect
+			if s.intro == fadeoutStart {
+				if s.gsf(GSF_roundnotover) && !s.winskipped {
+					// roundnotover prevents fadeoutStart from being reached
+					s.intro++
+				} else if s.lifebar.ro.rt.fadeoutTimer == 0 {
+					// Trigger fadeout only once
+					s.lifebar.ro.rt.fadeoutTimer = s.lifebar.ro.rt.fadeout_time
+				}
+			}
+
 			if s.winskipped || !s.roundWinTime() {
 				// Check if game can proceed into roundstate 4
 				if s.waitdown > 0 {
@@ -1564,6 +1686,7 @@ func (s *System) action() {
 						}
 					}
 				}
+
 				// Disable ctrl (once) at the first frame of roundstate 4
 				if s.intro == rs4t-1 {
 					for _, p := range s.chars {
@@ -1572,10 +1695,12 @@ func (s *System) action() {
 						}
 					}
 				}
+
 				// Start running wintime counter only after getting into roundstate 4
 				if s.intro < rs4t && !s.roundWinTime() {
 					s.wintime--
 				}
+
 				// Set characters into win/lose poses, update win counters
 				if s.roundWinStates() {
 					if s.waitdown >= 0 {
@@ -1594,7 +1719,7 @@ func (s *System) action() {
 											s.lifebar.wc[1].wins = 0
 										} else {
 											if s.wins[i] >= s.matchWins[i] {
-												s.lifebar.wc[i].wins += 1
+												s.lifebar.wc[i].wins++
 											}
 										}
 									}
@@ -1604,6 +1729,7 @@ func (s *System) action() {
 							s.draws++
 						}
 					}
+
 					for _, p := range s.chars {
 						if len(p) > 0 {
 							// Default life recovery. Used only if externalized Lua implementation is disabled
@@ -1629,18 +1755,11 @@ func (s *System) action() {
 							}
 						}
 					}
+
 					s.waitdown = 0
 				}
+
 				s.waitdown--
-			}
-			// If the game can't proceed to the fadeout screen, we turn back the counter 1 tick
-			if !s.winskipped && s.gsf(GSF_roundnotover) &&
-				s.intro == rs4t-2-s.lifebar.ro.over_time+s.lifebar.ro.rt.fadeout_time {
-				s.intro++
-			}
-			// Start fadeout effect
-			if s.intro == fadeoutStart {
-				s.lifebar.ro.rt.fadeoutTimer = s.lifebar.ro.rt.fadeout_time
 			}
 		} else if s.intro < 0 {
 			s.intro = 0
@@ -1822,7 +1941,7 @@ func (s *System) action() {
 	explUpdate(&s.explodsLayer1, false)
 	// Adjust game speed
 	if s.tickNextFrame() {
-		spd := (60 + s.cfg.Options.GameSpeed*5) / float32(s.cfg.Config.Framerate) * s.accel
+		spd := ((60 + s.cfg.Options.GameSpeed*5) / float32(s.cfg.Config.Framerate)) * s.accel
 		// KO slowdown
 		s.slowtimeTrigger = 0
 		if s.intro < 0 && s.time != 0 && s.slowtime > 0 {
@@ -2106,6 +2225,10 @@ func (s *System) drawDebugText() {
 // Called to start each match, on hard reset with shift+F4, and
 // at the start of any round where a new character tags in for turns mode
 func (s *System) fight() (reload bool) {
+	if s.rollback.session != nil || s.cfg.Netplay.Rollback.DesyncTestFrames > 0 {
+		return s.rollback.fight(s)
+	}
+
 	// Reset variables
 	s.gameTime, s.paused, s.accel = 0, false, 1
 	s.aiInput = [len(s.aiInput)]AiInput{}
@@ -2204,6 +2327,15 @@ func (s *System) fight() (reload bool) {
 				}
 			}
 		}
+
+		// Save/load state
+		if s.saveStateFlag {
+			s.saveState.SaveState(0)
+		} else if s.loadStateFlag {
+			s.saveState.LoadState(0)
+		}
+		s.saveStateFlag = false
+		s.loadStateFlag = false
 
 		// If next round
 		if s.roundOver() && !fin {
@@ -2313,57 +2445,7 @@ func (s *System) fight() (reload bool) {
 		}
 
 		// Render frame
-		if !s.frameSkip {
-			x, y, scl := s.cam.Pos[0], s.cam.Pos[1], s.cam.Scale/s.cam.BaseScale()
-			dx, dy, dscl := x, y, scl
-			if s.enableZoomtime > 0 {
-				if !s.debugPaused() {
-					s.zoomPosXLag += ((s.zoomPos[0] - s.zoomPosXLag) * (1 - s.zoomlag))
-					s.zoomPosYLag += ((s.zoomPos[1] - s.zoomPosYLag) * (1 - s.zoomlag))
-					s.drawScale = s.drawScale / (s.drawScale + (s.zoomScale*scl-s.drawScale)*s.zoomlag) * s.zoomScale * scl
-				}
-				if s.zoomStageBound {
-					dscl = MaxF(s.cam.MinScale, s.drawScale/s.cam.BaseScale())
-					if s.zoomCameraBound {
-						dx = x + ClampF(s.zoomPosXLag/scl, -s.cam.halfWidth/scl*2*(1-1/s.zoomScale), s.cam.halfWidth/scl*2*(1-1/s.zoomScale))
-					} else {
-						dx = x + s.zoomPosXLag/scl
-					}
-					dx = s.cam.XBound(dscl, dx)
-				} else {
-					dscl = s.drawScale / s.cam.BaseScale()
-					dx = x + s.zoomPosXLag/scl
-				}
-				dy = y + s.zoomPosYLag/scl
-			} else {
-				s.zoomlag = 0
-				s.zoomPosXLag = 0
-				s.zoomPosYLag = 0
-				s.zoomScale = 1
-				s.zoomPos = [2]float32{0, 0}
-				s.drawScale = s.cam.Scale
-			}
-			s.draw(dx, dy, dscl)
-		}
-
-		// Render top elements such as fade effects
-		if !s.frameSkip {
-			s.drawTop()
-		}
-
-		// Lua code is executed after drawing the fade effects, so that the menus are on top of them
-		for _, key := range SortedKeys(sys.cfg.Common.Lua) {
-			for _, v := range sys.cfg.Common.Lua[key] {
-				if err := s.luaLState.DoString(v); err != nil {
-					s.luaLState.RaiseError(err.Error())
-				}
-			}
-		}
-
-		// Render debug elements
-		if !s.frameSkip && s.debugDisplay {
-			s.drawDebugText()
-		}
+		s.renderFrame()
 
 		// Break if finished
 		if fin && (!s.postMatchFlg || len(sys.cfg.Common.Lua) == 0) {

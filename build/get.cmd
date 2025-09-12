@@ -9,7 +9,7 @@ echo Downloading dependencies...
 if not exist go.mod (
 	go mod init github.com/ikemen-engine/Ikemen-GO/src
 )
-
+go get github.com/assemblaj/ggpo
 go get -v -u github.com/ikemen-engine/beep
 go get -v -u github.com/flopp/go-findfont
 go get -v -u github.com/go-gl/gl/v2.1/gl

@@ -189,7 +189,7 @@ options.t_itemname = {
 			--modifyGameOption('Config.System', "external/script/main.lua")
 			--modifyGameOption('Config.ScreenshotFolder', "")
 			--modifyGameOption('Config.TrainingChar', "")
-			--modifyGameOption('Config.GamepadMappings', "external/gamecontrollerdb.txt")
+			modifyGameOption('Config.GamepadMappings', "external/gamecontrollerdb.txt")
 			modifyGameOption('Debug.AllowDebugMode', true)
 			modifyGameOption('Debug.AllowDebugKeys', true)
 			--modifyGameOption('Debug.ClipboardRows', 2)

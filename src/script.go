@@ -874,7 +874,11 @@ func systemScriptInit(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "connected", func(*lua.LState) int {
-		l.Push(lua.LBool(sys.netConnection.IsConnected()))
+		if sys.cfg.Netplay.RollbackNetcode {
+			l.Push(lua.LBool(sys.netConnection.IsConnected() || sys.rollback.session.IsConnected()))
+		} else {
+			l.Push(lua.LBool(sys.netConnection.IsConnected()))
+		}
 		return 1
 	})
 	luaRegister(l, "dialogueReset", func(*lua.LState) int {
@@ -898,13 +902,26 @@ func systemScriptInit(l *lua.LState) {
 		}
 		sys.chars = [len(sys.chars)][]*Char{}
 		sys.netConnection = NewNetConnection()
+
+		//Rollback only
+		if sys.cfg.Netplay.RollbackNetcode {
+			rs := NewRollbackSession(sys.cfg.Netplay.Rollback)
+			sys.rollback.session = &rs
+		}
+
 		if host := strArg(l, 1); host != "" {
+			//Rollback only
+			if sys.cfg.Netplay.RollbackNetcode {
+				sys.rollback.session.host = host
+			}
+
 			sys.netConnection.Connect(host, sys.cfg.Netplay.ListenPort)
 		} else {
 			if err := sys.netConnection.Accept(sys.cfg.Netplay.ListenPort); err != nil {
 				l.RaiseError(err.Error())
 			}
 		}
+
 		return 0
 	})
 	luaRegister(l, "enterReplay", func(*lua.LState) int {
@@ -923,6 +940,12 @@ func systemScriptInit(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "exitNetPlay", func(*lua.LState) int {
+		if sys.cfg.Netplay.RollbackNetcode {
+			if sys.rollback.session != nil {
+				sys.rollback.session.Close()
+				sys.rollback.session = nil
+			}
+		}
 		if sys.netConnection != nil {
 			sys.netConnection.Close()
 			sys.netConnection = nil
@@ -1864,6 +1887,10 @@ func systemScriptInit(l *lua.LState) {
 		l.Push(newUserData(l, w))
 		return 1
 	})
+	luaRegister(l, "loadState", func(*lua.LState) int {
+		sys.loadStateFlag = true
+		return 0
+	})
 	luaRegister(l, "loadDebugFont", func(l *lua.LState) int {
 		ts := NewTextSprite()
 		f, err := loadFnt(strArg(l, 1), -1)
@@ -2216,9 +2243,16 @@ func systemScriptInit(l *lua.LState) {
 		return 0
 	})
 	luaRegister(l, "replayStop", func(*lua.LState) int {
-		if sys.netConnection != nil && sys.netConnection.recording != nil {
-			sys.netConnection.recording.Close()
-			sys.netConnection.recording = nil
+		if sys.cfg.Netplay.RollbackNetcode {
+			if sys.rollback.session != nil && sys.rollback.session.recording != nil {
+				sys.rollback.session.recording.Close()
+				sys.rollback.session.recording = nil
+			}
+		} else {
+			if sys.netConnection != nil && sys.netConnection.recording != nil {
+				sys.netConnection.recording.Close()
+				sys.netConnection.recording = nil
+			}
 		}
 		return 0
 	})
@@ -2259,6 +2293,10 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "roundReset", func(*lua.LState) int {
 		sys.roundResetFlg = true
+		return 0
+	})
+	luaRegister(l, "saveState", func(*lua.LState) int {
+		sys.saveStateFlag = true
 		return 0
 	})
 	luaRegister(l, "saveGameOption", func(l *lua.LState) int {
@@ -2710,6 +2748,10 @@ func systemScriptInit(l *lua.LState) {
 	})
 	luaRegister(l, "setRedLife", func(*lua.LState) int {
 		sys.debugWC.redLifeSet(int32(numArg(l, 1)))
+		return 0
+	})
+	luaRegister(l, "setGameSpeed", func(*lua.LState) int {
+		sys.cfg.Options.GameSpeed = float32(numArg(l, 1))
 		return 0
 	})
 	luaRegister(l, "setRoundTime", func(l *lua.LState) int {
@@ -6103,7 +6145,7 @@ func triggerFunctions(l *lua.LState) {
 		return 1
 	})
 	luaRegister(l, "network", func(*lua.LState) int {
-		l.Push(lua.LBool(sys.netConnection != nil || sys.replayFile != nil))
+		l.Push(lua.LBool(sys.rollback.session != nil || sys.netConnection != nil || sys.replayFile != nil))
 		return 1
 	})
 	luaRegister(l, "paused", func(*lua.LState) int {

@@ -114,6 +114,7 @@ jobs:
           export GOOS="${{ matrix.cfg.goos }}"
           export GOARCH="${{ matrix.cfg.goarch }}"
           export CGO_ENABLED=1
+          export GOEXPERIMENT=arenas
           if [ "${{ matrix.cfg.glibc }}" != "" ]; then
             wget https://raw.githubusercontent.com/wheybags/glibc_version_header/master/version_headers/x64/force_link_glibc_${{ matrix.cfg.glibc }}.h -O $PWD/force_link_glibc.h
             export CGO_CFLAGS="$CGO_CFLAGS -include $PWD/force_link_glibc.h"
@@ -146,15 +147,26 @@ jobs:
         run: |
           echo "Preparing files for deployment"
           mkdir deploy
-          cp ${{ matrix.cfg.bin }} deploy/
+          if [ "$RUNNER_OS" != "macOS" ]; then
+            cp ${{ matrix.cfg.bin }} deploy/
+          fi
           git clone https://github.com/ikemen-engine/Ikemen_GO-Elecbyte-Screenpack.git
           cp -r data external font Ikemen_GO-Elecbyte-Screenpack/chars Ikemen_GO-Elecbyte-Screenpack/data Ikemen_GO-Elecbyte-Screenpack/font Ikemen_GO-Elecbyte-Screenpack/sound Ikemen_GO-Elecbyte-Screenpack/stages deploy/
           cp License.txt deploy/
           cp Ikemen_GO-Elecbyte-Screenpack/LICENCE.txt deploy/ScreenpackLicense.txt
+          GAMEPAD_DB_URL="https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/refs/heads/master/gamecontrollerdb.txt"
+          mkdir -p deploy/external
+          echo "Downloading SDL GameController DB..."
+          curl -L "$GAMEPAD_DB_URL" -o deploy/external/gamecontrollerdb.txt
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "Build the macOS .app bundle"
+            make appbundle_docker BINNAME=${{ matrix.cfg.bin }}
+            cp -r I.K.E.M.E.N-Go.app deploy/
+          fi
           echo "Zipping deploy directory"
           cd deploy
           if [ "${{ github.event.inputs.tag }}" == "" ]; then
-            ARTIFACT_NAME=Ikemen_GO-dev-${{ matrix.cfg.runner_os }}.zip         
+            ARTIFACT_NAME=Ikemen_GO-dev-${{ matrix.cfg.runner_os }}.zip
             echo "artifact=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
             echo "${{ needs.tag.outputs.buildTime }}" > external/script/version
           else

@@ -3,8 +3,9 @@ cd $(dirname $0)
 
 case "$OSTYPE" in
 	darwin*) #echo "It's a Mac!!" ;
-		chmod +x Ikemen_GO_MacOS
-		./Ikemen_GO_MacOS -AppleMagnifiedMode YES
+		xattr -d com.apple.quarantine I.K.E.M.E.N-Go.app
+		chmod +x ./I.K.E.M.E.N-Go.app/Contents/MacOS/bundle_run.sh
+		./I.K.E.M.E.N-Go.app/Contents/MacOS/bundle_run.sh
 	;;
 	linux*)
 		#export MESA_GL_VERSION_OVERRIDE=2.1
