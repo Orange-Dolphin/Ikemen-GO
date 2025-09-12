@@ -1942,8 +1942,8 @@ func systemScriptInit(l *lua.LState) {
 	//Actual process of loading palettes
 	luaRegister(l, "loadPalettes", func(*lua.LState) int {
 		a, _ := toUserData(l, 1).(*Anim)
-		if sys.cfg.Config.PreloadPalette == false && sys.usePalette == true {
-			loadCharPalettes(a.anim.sff, a.anim.sff.filename, int(numArg(l, 2)))
+		if sys.usePalette == true {
+			loadCharPalettes(a.anim.sff, a.anim.sff.filename, int(numArg(l, 2)), false)
 		}
 		l.Push(newUserData(l, a))
 		return 1

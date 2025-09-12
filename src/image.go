@@ -1451,7 +1451,7 @@ func loadSff(filename string, char bool) (*Sff, error) {
 	return s, nil
 }
 
-func loadCharPalettes(sff *Sff, filename string, ref int) (error) {
+func loadCharPalettes(sff *Sff, filename string, ref int, preload bool) (error) {
 	f, err := OpenFile(filename)
 	if err != nil {
 		return err
@@ -1466,64 +1466,66 @@ func loadCharPalettes(sff *Sff, filename string, ref int) (error) {
 	}
 	if sff.header.Ver0 != 1{
 		uniquePals := make(map[[2]int16]int)
-		for i := 0; i < int(h.NumberOfPalettes); i++ {
-			f.Seek(int64(h.FirstPaletteHeaderOffset)+int64(i*16), 0)
-			var gn_ [3]int16
-			if err := read(gn_[:]); err != nil {
-				return err
-			}
-			if gn_[0] == 1 {
-				var link uint16
-				if err := read(&link); err != nil {
+		if preload == false {
+			for i := 0; i < int(h.NumberOfPalettes); i++ {
+				f.Seek(int64(h.FirstPaletteHeaderOffset)+int64(i*16), 0)
+				var gn_ [3]int16
+				if err := read(gn_[:]); err != nil {
 					return err
 				}
-				var ofs, siz uint32
-				if err := read(&ofs); err != nil {
-					return err
-				}
-				if err := read(&siz); err != nil {
-					return err
-				}
-				var pal []uint32
-				var idx int
-				if old, ok := uniquePals[[...]int16{gn_[0], gn_[1]}]; ok {
-					idx = old
-					pal = sff.palList.Get(old)
-					sys.errLog.Printf("%v duplicated palette: %v,%v (%v/%v)\n", filename, gn_[0], gn_[1], i+1, h.NumberOfPalettes)
-				} else if siz == 0 {
-					idx = int(link)
-					pal = sff.palList.Get(idx)
-				} else {
-					f.Seek(int64(lofs+ofs), 0)
-					pal = make([]uint32, 256)
-					var rgba [4]byte
-					for i := 0; i < int(siz)/4 && i < len(pal); i++ {
-						if err := read(rgba[:]); err != nil {
-							return err
-						}
-						if sff.header.Ver2 == 0 {
-							if i == 0 {
-								rgba[3] = 0
-							} else {
-								rgba[3] = 255
-							}
-						}
-						pal[i] = uint32(rgba[3])<<24 | uint32(rgba[2])<<16 | uint32(rgba[1])<<8 | uint32(rgba[0])
+				if gn_[0] == 1 {
+					var link uint16
+					if err := read(&link); err != nil {
+						return err
 					}
-					idx = i
-				}
-				uniquePals[[...]int16{gn_[0], gn_[1]}] = int(gn_[1])
-				sff.palList.SetSource(int(gn_[1]) - 1, pal)
-				sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] = int(gn_[1])
-				sff.palList.numcols[[...]int16{gn_[0], gn_[1]}] = int(gn_[2])
-				if i <= MaxPalNo &&
-					sff.palList.PalTable[[...]int16{1, int16(i + 1)}] == sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] &&
-					gn_[0] != 1 && gn_[1] != int16(i+1) {
-					sff.palList.PalTable[[...]int16{1, int16(i + 1)}] = -1
-				}
-				if i <= MaxPalNo && i+1 == int(h.NumberOfPalettes) {
-					for j := i + 1; j < MaxPalNo; j++ {
-						delete(sff.palList.PalTable, [...]int16{1, int16(j + 1)}) // Remove extra palette
+					var ofs, siz uint32
+					if err := read(&ofs); err != nil {
+						return err
+					}
+					if err := read(&siz); err != nil {
+						return err
+					}
+					var pal []uint32
+					var idx int
+					if old, ok := uniquePals[[...]int16{gn_[0], gn_[1]}]; ok {
+						idx = old
+						pal = sff.palList.Get(old)
+						sys.errLog.Printf("%v duplicated palette: %v,%v (%v/%v)\n", filename, gn_[0], gn_[1], i+1, h.NumberOfPalettes)
+					} else if siz == 0 {
+						idx = int(link)
+						pal = sff.palList.Get(idx)
+					} else {
+						f.Seek(int64(lofs+ofs), 0)
+						pal = make([]uint32, 256)
+						var rgba [4]byte
+						for i := 0; i < int(siz)/4 && i < len(pal); i++ {
+							if err := read(rgba[:]); err != nil {
+								return err
+							}
+							if sff.header.Ver2 == 0 {
+								if i == 0 {
+									rgba[3] = 0
+								} else {
+									rgba[3] = 255
+								}
+							}
+							pal[i] = uint32(rgba[3])<<24 | uint32(rgba[2])<<16 | uint32(rgba[1])<<8 | uint32(rgba[0])
+						}
+						idx = i
+					}
+					uniquePals[[...]int16{gn_[0], gn_[1]}] = int(gn_[1])
+					sff.palList.SetSource(int(gn_[1]) - 1, pal)
+					sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] = int(gn_[1])
+					sff.palList.numcols[[...]int16{gn_[0], gn_[1]}] = int(gn_[2])
+					if i <= MaxPalNo &&
+						sff.palList.PalTable[[...]int16{1, int16(i + 1)}] == sff.palList.PalTable[[...]int16{gn_[0], gn_[1]}] &&
+						gn_[0] != 1 && gn_[1] != int16(i+1) {
+						sff.palList.PalTable[[...]int16{1, int16(i + 1)}] = -1
+					}
+					if i <= MaxPalNo && i+1 == int(h.NumberOfPalettes) {
+						for j := i + 1; j < MaxPalNo; j++ {
+							delete(sff.palList.PalTable, [...]int16{1, int16(j + 1)}) // Remove extra palette
+						}
 					}
 				}
 			}
@@ -1563,6 +1565,9 @@ func loadCharPalettes(sff *Sff, filename string, ref int) (error) {
 				chk(U.Close())
 			}
 			x = x + 1
+			if preload {
+				break
+			}
 		}
 	}
 	return nil
@@ -1811,8 +1816,8 @@ func preloadSff(filename string, char bool, preloadSpr map[[2]int16]bool) (*Sff,
 	}
 	
 	//Actually load the palettes if set to preload
-	if sys.cfg.Config.PreloadPalette == true  && sys.usePalette && char{
-		loadCharPalettes(sff, filename, len(sys.sel.charlist)-1)
+	if sys.usePalette && char{
+		loadCharPalettes(sff, filename, len(sys.sel.charlist)-1, true)
 	}
 	return sff, selPal, nil
 }
