@@ -1473,7 +1473,7 @@ func loadCharPalettes(sff *Sff, filename string, ref int, preload bool) (error) 
 				if err := read(gn_[:]); err != nil {
 					return err
 				}
-				if gn_[0] == 1 {
+				if gn_[0] == 1 && gn_[1] > 0{
 					var link uint16
 					if err := read(&link); err != nil {
 						return err
