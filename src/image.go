@@ -1478,6 +1478,10 @@ func loadCharPalettes(sff *Sff, filename string, ref int, preload bool) (error) 
 					if err := read(&link); err != nil {
 						return err
 					}
+					//Accounts for shared palettes
+					if link != 0 {
+						f.Seek((int64((i - int(link)) * 16)) * -1, 1)
+					}
 					var ofs, siz uint32
 					if err := read(&ofs); err != nil {
 						return err
