@@ -95,14 +95,44 @@ const (
 	BG_Normal BgType = iota
 	BG_Anim
 	BG_Parallax
+	BG_Video
 	BG_Dummy
+)
+
+type BgVideoScale int32
+
+const (
+	SC_None BgVideoScale = iota
+	SC_Stretch
+	SC_Fit
+	SC_FitWidth
+	SC_FitHeight
+	SC_ZoomFill
+	SC_Center
+)
+
+type BgVideoFlag int32
+
+const (
+	SF_FastBilinear BgVideoFlag = iota
+	SF_Bilinear
+	SF_Bicubic
+	SF_Experimental
+	SF_Neighbor
+	SF_Area
+	SF_Bicublin
+	SF_Gauss
+	SF_Sinc
+	SF_Lanczos
+	SF_Spline
 )
 
 type backGround struct {
 	_type              BgType
 	palfx              *PalFX
-	anim               Animation
+	anim               *Animation
 	bga                bgAction
+	video              bgVideo
 	id                 int32
 	start              [2]float32
 	xofs               float32
@@ -118,7 +148,7 @@ type backGround struct {
 	startsint          [2]int32
 	startsinlt         [2]int32
 	visible            bool
-	active             bool
+	enabled            bool
 	positionlink       bool
 	layerno            int32
 	autoresizeparallax bool
@@ -140,7 +170,7 @@ type backGround struct {
 func newBackGround(sff *Sff) *backGround {
 	return &backGround{
 		palfx:              newPalFX(),
-		anim:               *newAnimation(sff, &sff.palList),
+		anim:               newAnimation(sff, &sff.palList),
 		delta:              [...]float32{1, 1},
 		zoomdelta:          [...]float32{1, math.MaxFloat32},
 		xscale:             [...]float32{1, 1},
@@ -155,18 +185,18 @@ func newBackGround(sff *Sff) *backGround {
 		zoomscaledelta:     [...]float32{math.MaxFloat32, math.MaxFloat32},
 		actionno:           -1,
 		visible:            true,
-		active:             true,
+		enabled:            true,
 		autoresizeparallax: false,
 		startrect:          [...]int32{-32768, -32768, 65535, 65535},
 	}
 }
 
 func readBackGround(is IniSection, link *backGround,
-	sff *Sff, at AnimationTable, sProps StageProps) *backGround {
+	sff *Sff, at AnimationTable, sProps StageProps, def string) (*backGround, error) {
 	bg := newBackGround(sff)
 	typ := is["type"]
 	if len(typ) == 0 {
-		return bg
+		return bg, nil
 	}
 	switch typ[0] {
 	case 'N', 'n':
@@ -175,19 +205,92 @@ func readBackGround(is IniSection, link *backGround,
 		bg._type = BG_Anim
 	case 'P', 'p':
 		bg._type = BG_Parallax
+	case 'V', 'v':
+		bg._type = BG_Video
 	case 'D', 'd':
 		bg._type = BG_Dummy
 	default:
-		return bg
+		return bg, nil
 	}
 	var tmp int32
 	is.ReadI32("layerno", &bg.layerno)
-	if bg._type != BG_Dummy {
+	if bg._type == BG_Video {
+		path := is["path"]
+		LoadFile(&path, []string{def, "", sys.motifDir, "data/", "video/"}, func(filename string) error {
+			path = filename
+			return nil
+		})
+		if len(path) != 0 {
+			volume := 100
+			if v, ok := is["volume"]; ok {
+				volume = int(Atoi(v))
+			}
+
+			var s BgVideoScale
+			if v, ok := is["scale"]; ok {
+				switch strings.ToLower(strings.TrimSpace(v)) {
+				case "none":
+					s = SC_None
+				case "stretch":
+					s = SC_Stretch
+				case "fit":
+					s = SC_Fit
+				case "fitwidth":
+					s = SC_FitWidth
+				case "fitheight":
+					s = SC_FitHeight
+				case "zoomfill":
+					s = SC_ZoomFill
+				case "center":
+					s = SC_Center
+				default:
+					return nil, Error("Invalid BG Video scale: " + v)
+				}
+			}
+
+			var f BgVideoFlag
+			if v, ok := is["filter"]; ok {
+				switch strings.ToLower(strings.TrimSpace(v)) {
+				case "fastbilinear":
+					f = SF_FastBilinear
+				case "bilinear":
+					f = SF_Bilinear
+				case "bicubic":
+					f = SF_Bicubic
+				case "experimental":
+					f = SF_Experimental
+				case "neighbor":
+					f = SF_Neighbor
+				case "area":
+					f = SF_Area
+				case "bicublin":
+					f = SF_Bicublin
+				case "gauss":
+					f = SF_Gauss
+				case "sinc":
+					f = SF_Sinc
+				case "lanczos":
+					f = SF_Lanczos
+				case "spline":
+					f = SF_Spline
+				default:
+					return nil, Error("Invalid BG Video filter: " + v)
+				}
+			}
+
+			var loop bool
+			is.ReadBool("loop", &loop)
+
+			if err := bg.video.Open(path, volume, s, f, loop); err != nil {
+				return nil, err
+			}
+		}
+	} else if bg._type != BG_Dummy {
 		var hasAnim bool
 		if (bg._type != BG_Normal || len(is["spriteno"]) == 0) &&
 			is.ReadI32("actionno", &bg.actionno) {
 			if a := at.get(bg.actionno); a != nil {
-				bg.anim = *a
+				bg.anim = a
 				hasAnim = true
 			}
 		}
@@ -362,31 +465,40 @@ func readBackGround(is IniSection, link *backGround,
 	if !is.ReadBool("roundpos", &bg.roundpos) {
 		bg.roundpos = sProps.roundpos
 	}
-	return bg
+	return bg, nil
 }
 
 func (bg *backGround) reset() {
-	bg.palfx.clear()
-	bg.anim.Reset()
 	bg.bga.clear()
 	bg.bga.vel = bg.startv
 	bg.bga.radius = bg.startrad
 	bg.bga.sintime = bg.startsint
 	bg.bga.sinlooptime = bg.startsinlt
-	bg.palfx.time = -1
-	bg.palfx.invertblend = -3
+
+	if bg.anim != nil {
+		bg.anim.Reset()
+	}
+
+	if bg.palfx != nil {
+		bg.palfx.clear()
+		bg.palfx.time = -1
+		bg.palfx.invertblend = -3
+	}
 }
 
-// Changes BG animation without changing surrounding parameters
+// Changes BG animation without changing the surrounding parameters
 func (bg *backGround) changeAnim(val int32, a *Animation) {
 	// Save old
 	masktemp := bg.anim.mask
 	srcAlphatemp := bg.anim.srcAlpha
 	dstAlphatemp := bg.anim.dstAlpha
 	tiletmp := bg.anim.tile
-	// Change anim and restore old
+
+	// Change anim
 	bg.actionno = val
-	bg.anim = *a
+	bg.anim = a
+
+	// Restore
 	bg.anim.tile = tiletmp
 	bg.anim.dstAlpha = dstAlphatemp
 	bg.anim.srcAlpha = srcAlphatemp
@@ -397,10 +509,12 @@ func (bg backGround) draw(pos [2]float32, drawscl, bgscl, stglscl float32,
 	stgscl [2]float32, shakeY float32, isStage bool) {
 
 	// Handle parallax scaling (type = 2)
+	scalestartX := bg.scalestart[0]
 	if bg._type == BG_Parallax && (bg.width[0] != 0 || bg.width[1] != 0) && bg.anim.spr != nil {
 		bg.xscale[0] = float32(bg.width[0]) / float32(bg.anim.spr.Size[0])
 		bg.xscale[1] = float32(bg.width[1]) / float32(bg.anim.spr.Size[0])
-		bg.xofs = -float32(bg.width[0])/2 + float32(bg.anim.spr.Offset[0])*bg.xscale[0]
+		scalestartX = AbsF(scalestartX)
+		bg.xofs = scalestartX * ((-float32(bg.width[0]) / 2) + float32(bg.anim.spr.Offset[0])*bg.xscale[0])
 	}
 
 	// Calculate raster x ratio and base x scale
@@ -486,13 +600,6 @@ func (bg backGround) draw(pos [2]float32, drawscl, bgscl, stglscl float32,
 	sclx *= lscl[0]
 	scly *= stglscl * stgscl[1]
 
-	// Xshear offset correction
-	xsoffset := -bg.xshear * SignF(bg.scalestart[1]) * (float32(bg.anim.spr.Offset[1]) * scly)
-
-	if bg.rot.angle != 0 {
-		xsoffset /= bg.rot.angle
-	}
-
 	// Calculate window scale
 	var wscl [2]float32
 	for i := range wscl {
@@ -532,11 +639,43 @@ func (bg backGround) draw(pos [2]float32, drawscl, bgscl, stglscl float32,
 
 	// Render background if it's within the screen area
 	if rect[0] < sys.scrrect[2] && rect[1] < sys.scrrect[3] && rect[0]+rect[2] > 0 && rect[1]+rect[3] > 0 {
-		bg.anim.Draw(&rect, x-xsoffset, y, sclx, scly,
-			bg.xscale[0]*bgscl*(bg.scalestart[0]+xs)*xs3,
-			xbs*bgscl*(bg.scalestart[0]+xs)*xs3,
-			ys*ys3, xras*x/(AbsF(ys*ys3)*lscl[1]*float32(bg.anim.spr.Size[1])*bg.scalestart[1])*sclx_recip*bg.scalestart[1]-bg.xshear,
-			bg.rot, float32(sys.gameWidth)/2, bg.palfx, true, 1, [2]float32{1, 1}, int32(bg.projection), bg.fLength, 0, false)
+		if bg._type == BG_Video {
+			bg.video.Tick()
+			if bg.video.texture != nil {
+				texWidth := bg.video.texture.GetWidth()
+				texHeight := bg.video.texture.GetHeight()
+				rp := RenderParams{
+					tex:    bg.video.texture,
+					size:   [2]uint16{uint16(texWidth), uint16(texHeight)},
+					x:      x,
+					y:      y,
+					tile:   notiling,
+					xts:    sclx,
+					xbs:    scly,
+					ys:     1,
+					vs:     1,
+					xas:    1,
+					yas:    1,
+					rot:    Rotation{},
+					trans:  255,
+					mask:   -1,
+					window: &sys.scrrect,
+				}
+				RenderSprite(rp)
+			}
+		} else {
+			// Xshear offset correction
+			xsoffset := -bg.xshear * SignF(bg.scalestart[1]) * (float32(bg.anim.spr.Offset[1]) * scly)
+
+			if bg.rot.angle != 0 {
+				xsoffset /= bg.rot.angle
+			}
+			bg.anim.Draw(&rect, x-xsoffset, y, sclx, scly,
+				bg.xscale[0]*bgscl*(scalestartX+xs)*xs3,
+				xbs*bgscl*(scalestartX+xs)*xs3,
+				ys*ys3, xras*x/(AbsF(ys*ys3)*lscl[1]*float32(bg.anim.spr.Size[1])*bg.scalestart[1])*sclx_recip*bg.scalestart[1]-bg.xshear,
+				bg.rot, float32(sys.gameWidth)/2, bg.palfx, true, 1, [2]float32{1, 1}, int32(bg.projection), bg.fLength, 0, false)
+		}
 	}
 }
 
@@ -544,7 +683,6 @@ type bgCtrl struct {
 	bg           []*backGround
 	node         []*Node
 	anim         []*GLTFAnimation
-	currenttime  int32
 	starttime    int32
 	endtime      int32
 	looptime     int32
@@ -695,98 +833,6 @@ func (bgc *bgCtrl) yEnable() bool {
 	return !math.IsNaN(float64(bgc.y))
 }
 
-type bgctNode struct {
-	bgc      []*bgCtrl
-	waitTime int32
-}
-type bgcTimeLine struct {
-	line []bgctNode
-	al   []*bgCtrl
-}
-
-func (bgct *bgcTimeLine) clear() {
-	*bgct = bgcTimeLine{}
-}
-
-func (bgct *bgcTimeLine) add(bgc *bgCtrl) {
-	if bgc.looptime >= 0 && bgc.endtime > bgc.looptime {
-		bgc.endtime = bgc.looptime
-	}
-	if bgc.starttime < 0 || bgc.starttime > bgc.endtime ||
-		bgc.looptime >= 0 && bgc.starttime >= bgc.looptime {
-		return
-	}
-	wtime := int32(0)
-	if bgc.currenttime != 0 {
-		if bgc.looptime < 0 {
-			return
-		}
-		wtime += bgc.looptime - bgc.currenttime
-	}
-	wtime += bgc.starttime
-	bgc.currenttime = bgc.starttime
-	if wtime < 0 {
-		bgc.currenttime -= wtime
-		wtime = 0
-	}
-	i := 0
-	for ; ; i++ {
-		if i == len(bgct.line) {
-			bgct.line = append(bgct.line,
-				bgctNode{bgc: []*bgCtrl{bgc}, waitTime: wtime})
-			return
-		}
-		if wtime <= bgct.line[i].waitTime {
-			break
-		}
-		wtime -= bgct.line[i].waitTime
-	}
-	if wtime == bgct.line[i].waitTime {
-		bgct.line[i].bgc = append(bgct.line[i].bgc, bgc)
-	} else {
-		bgct.line[i].waitTime -= wtime
-		bgct.line = append(bgct.line, bgctNode{})
-		copy(bgct.line[i+1:], bgct.line[i:])
-		bgct.line[i] = bgctNode{bgc: []*bgCtrl{bgc}, waitTime: wtime}
-	}
-}
-
-func (bgct *bgcTimeLine) step(s *Stage) {
-	if len(bgct.line) > 0 && bgct.line[0].waitTime <= 0 {
-		for _, b := range bgct.line[0].bgc {
-			for i, a := range bgct.al {
-				if b.idx < a.idx {
-					bgct.al = append(bgct.al, nil)
-					copy(bgct.al[i+1:], bgct.al[i:])
-					bgct.al[i] = b
-					b = nil
-					break
-				}
-			}
-			if b != nil {
-				bgct.al = append(bgct.al, b)
-			}
-		}
-		bgct.line = bgct.line[1:]
-	}
-	if len(bgct.line) > 0 {
-		bgct.line[0].waitTime--
-	}
-	var el []*bgCtrl
-	for i := 0; i < len(bgct.al); {
-		s.runBgCtrl(bgct.al[i])
-		if bgct.al[i].currenttime > bgct.al[i].endtime {
-			el = append(el, bgct.al[i])
-			bgct.al = append(bgct.al[:i], bgct.al[i+1:]...)
-			continue
-		}
-		i++
-	}
-	for _, b := range el {
-		bgct.add(b)
-	}
-}
-
 type stageShadow struct {
 	intensity  int32
 	color      uint32
@@ -800,9 +846,11 @@ type stageShadow struct {
 	offset     [2]float32
 	window     [4]float32
 }
+
 type stagePlayer struct {
 	startx, starty, startz, facing int32
 }
+
 type Stage struct {
 	def               string
 	bgmusic           string
@@ -817,7 +865,6 @@ type Stage struct {
 	at                AnimationTable
 	bg                []*backGround
 	bgc               []bgCtrl
-	bgct              bgcTimeLine
 	bga               bgAction
 	sdw               stageShadow
 	p                 [MaxPlayerNo]stagePlayer
@@ -1423,8 +1470,11 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 		if len(s.bg) > 0 && !s.bg[len(s.bg)-1].positionlink {
 			bglink = s.bg[len(s.bg)-1]
 		}
-		s.bg = append(s.bg, readBackGround(bgsec, bglink,
-			s.sff, s.at, s.stageprops))
+		bg, err := readBackGround(bgsec, bglink, s.sff, s.at, s.stageprops, def)
+		if err != nil {
+			return nil, err
+		}
+		s.bg = append(s.bg, bg)
 	}
 	bgcdef := *newBgCtrl()
 	i = 0
@@ -1515,65 +1565,6 @@ func loadStage(def string, maindef bool) (*Stage, error) {
 	return s, nil
 }
 
-func (s *Stage) copyStageVars(src *Stage) {
-	s.stageCamera.boundleft = src.stageCamera.boundleft
-	s.stageCamera.boundright = src.stageCamera.boundright
-	s.stageCamera.boundhigh = src.stageCamera.boundhigh
-	s.stageCamera.boundlow = src.stageCamera.boundlow
-	s.stageCamera.verticalfollow = src.stageCamera.verticalfollow
-	s.stageCamera.floortension = src.stageCamera.floortension
-	s.stageCamera.tensionhigh = src.stageCamera.tensionhigh
-	s.stageCamera.tensionlow = src.stageCamera.tensionlow
-	s.stageCamera.tension = src.stageCamera.tension
-	s.stageCamera.startzoom = src.stageCamera.startzoom
-	s.stageCamera.zoomout = src.stageCamera.zoomout
-	s.stageCamera.zoomin = src.stageCamera.zoomin
-	s.stageCamera.ytensionenable = src.stageCamera.ytensionenable
-	s.leftbound = src.leftbound
-	s.rightbound = src.rightbound
-	s.stageCamera.topz = src.stageCamera.topz
-	s.stageCamera.botz = src.stageCamera.botz
-	s.stageCamera.ztopscale = src.stageCamera.ztopscale
-	s.stageCamera.zbotscale = src.stageCamera.zbotscale
-	s.screenleft = src.screenleft
-	s.screenright = src.screenright
-	s.stageCamera.zoffset = src.stageCamera.zoffset
-	s.zoffsetlink = src.zoffsetlink
-	s.scale[0] = src.scale[0]
-	s.scale[1] = src.scale[1]
-	s.sdw.intensity = src.sdw.intensity
-	s.sdw.color = src.sdw.color
-	s.sdw.yscale = src.sdw.yscale
-	s.sdw.fadeend = src.sdw.fadeend
-	s.sdw.fadebgn = src.sdw.fadebgn
-	s.sdw.xshear = src.sdw.xshear
-	s.sdw.rot.angle = src.sdw.rot.angle
-	s.sdw.rot.xangle = src.sdw.rot.xangle
-	s.sdw.rot.yangle = src.sdw.rot.yangle
-	s.sdw.fLength = src.sdw.fLength
-	s.sdw.projection = src.sdw.projection
-	s.sdw.offset[0] = src.sdw.offset[0]
-	s.sdw.offset[1] = src.sdw.offset[1]
-	s.sdw.window[0] = src.sdw.window[0]
-	s.sdw.window[1] = src.sdw.window[1]
-	s.sdw.window[2] = src.sdw.window[2]
-	s.sdw.window[3] = src.sdw.window[3]
-	s.reflection.intensity = src.reflection.intensity
-	s.reflection.offset[0] = src.reflection.offset[0]
-	s.reflection.offset[1] = src.reflection.offset[1]
-	s.reflection.xshear = src.reflection.xshear
-	s.reflection.yscale = src.reflection.yscale
-	s.reflection.rot.angle = src.reflection.rot.angle
-	s.reflection.rot.xangle = src.reflection.rot.xangle
-	s.reflection.rot.yangle = src.reflection.rot.yangle
-	s.reflection.fLength = src.reflection.fLength
-	s.reflection.projection = src.reflection.projection
-	s.reflection.window[0] = src.reflection.window[0]
-	s.reflection.window[1] = src.reflection.window[1]
-	s.reflection.window[2] = src.reflection.window[2]
-	s.reflection.window[3] = src.reflection.window[3]
-}
-
 func (s *Stage) getBg(id int32) (bg []*backGround) {
 	if id >= 0 {
 		for _, b := range s.bg {
@@ -1607,8 +1598,37 @@ func (s *Stage) get3DAnim(id uint32) (anims []*GLTFAnimation) {
 	return
 }
 
+// This essentially replaces the old timeline struct
+func (s *Stage) bgCtrlAction() {
+	for i := range s.bgc {
+		bgc := &s.bgc[i]
+		if bgc.starttime < 0 || (bgc.looptime >= 0 && bgc.starttime >= bgc.looptime) {
+			continue
+		}
+
+		if bgc.looptime > 0 && bgc.endtime > bgc.looptime {
+			bgc.endtime = bgc.looptime
+		}
+
+		active := false
+		if s.stageTime >= bgc.starttime {
+			if bgc.looptime > 0 {
+				duration := bgc.endtime - bgc.starttime
+				if (s.stageTime-bgc.starttime)%bgc.looptime <= duration {
+					active = true
+				}
+			} else if s.stageTime <= bgc.endtime {
+				active = true
+			}
+		}
+
+		if active {
+			s.runBgCtrl(bgc)
+		}
+	}
+}
+
 func (s *Stage) runBgCtrl(bgc *bgCtrl) {
-	bgc.currenttime++
 	switch bgc._type {
 	case BT_Anim:
 		if a := s.at.get(bgc.v[0]); a != nil {
@@ -1628,7 +1648,7 @@ func (s *Stage) runBgCtrl(bgc *bgCtrl) {
 		}
 	case BT_Enable:
 		for i := range bgc.bg {
-			bgc.bg[i].visible, bgc.bg[i].active = bgc.v[0] != 0, bgc.v[0] != 0
+			bgc.bg[i].enabled = bgc.v[0] != 0
 		}
 	case BT_PalFX:
 		for i := range bgc.bg {
@@ -1766,16 +1786,33 @@ func (s *Stage) runBgCtrl(bgc *bgCtrl) {
 
 func (s *Stage) action() {
 	link, zlink, paused := 0, -1, true
-	if sys.tickFrame() && (sys.supertime <= 0 || !sys.superpausebg) &&
-		(sys.pausetime <= 0 || !sys.pausebg) {
+	canStep := sys.tickFrame() && (sys.supertime <= 0 || !sys.superpausebg) && (sys.pausetime <= 0 || !sys.pausebg)
+	if canStep {
 		paused = false
-		s.stageTime++
-		s.bgct.step(s)
+
+		s.bgCtrlAction()
 		s.bga.action()
+
+		// Stage time must be incremented after updating BGCtrl
+		// https://github.com/ikemen-engine/Ikemen-GO/issues/2656
+		s.stageTime++
+
 		if s.model != nil {
 			s.model.step(sys.turbo)
 		}
 	}
+
+	// Always (every frame) sync decoder run state to global pause + Enable.
+	// This prevents the decoder clock from advancing during pause.
+	for i := range s.bg {
+		if s.bg[i]._type == BG_Video {
+			shouldPlay := s.bg[i].enabled && !paused
+			// Apply visibility first so there's no frame-0 audio when Visible=0.
+			s.bg[i].video.SetVisible(s.bg[i].visible)
+			s.bg[i].video.SetPlaying(shouldPlay)
+		}
+	}
+
 	for i, b := range s.bg {
 		b.palfx.step()
 		if sys.bgPalFX.enable {
@@ -1798,7 +1835,7 @@ func (s *Stage) action() {
 			b.palfx.eInvertblend = sys.bgPalFX.eInvertblend
 			b.palfx.eNegType = sys.bgPalFX.eNegType
 		}
-		if b.active && !paused {
+		if b.enabled && !paused {
 			s.bg[i].bga.action()
 			if i > 0 && b.positionlink {
 				bgasinoffset0 := s.bg[link].bga.sinoffset[0]
@@ -1819,6 +1856,7 @@ func (s *Stage) action() {
 			s.bg[i].anim.Action()
 		}
 	}
+
 	if s.model != nil {
 		s.model.pfx.step()
 		if sys.bgPalFX.enable {
@@ -1883,7 +1921,8 @@ func (s *Stage) draw(layer int32, x, y, scl float32) {
 	}
 	s.drawModel(pos, ofs[1], scl, layer)
 	for _, b := range s.bg {
-		if b.layerno == layer && b.visible && b.anim.spr != nil {
+		// Draw only when visible and enabled.
+		if b.layerno == layer && b.visible && b.enabled && (b.anim.spr != nil || b._type == BG_Video) {
 			b.draw(pos, scl, bgscl, s.localscl, s.scale, ofs[1], true)
 		}
 	}
@@ -1891,22 +1930,21 @@ func (s *Stage) draw(layer int32, x, y, scl float32) {
 }
 
 func (s *Stage) reset() {
+	s.stageTime = 0
 	s.sff.palList.ResetRemap()
 	s.bga.clear()
 	for i := range s.bg {
 		s.bg[i].reset()
+		// Ensure videos start paused, then rewind.
+		if s.bg[i]._type == BG_Video {
+			s.bg[i].video.SetPlaying(false)
+			s.bg[i].video.Reset()
+		}
 	}
-	for i := range s.bgc {
-		s.bgc[i].currenttime = 0
-	}
-	s.bgct.clear()
-	for i := len(s.bgc) - 1; i >= 0; i-- {
-		s.bgct.add(&s.bgc[i])
-	}
-	s.stageTime = 0
 	if s.model != nil {
 		s.model.reset()
 	}
+	// No need to reset BGCtrl at the moment. Tied to stagetime
 }
 
 func (s *Stage) modifyBGCtrl(id int32, t, v [3]int32, x, y float32, src, dst [2]int32,
@@ -2066,6 +2104,7 @@ type Model struct {
 	//lightNodes           []int32
 	//lightNodesForeground []int32
 }
+
 type Scene struct {
 	nodes           []uint32
 	name            string
@@ -2135,6 +2174,7 @@ type GLTFAnimation struct {
 	channels       []*GLTFAnimationChannel
 	samplers       []*GLTFAnimationSampler
 }
+
 type GLTFAnimationChannel struct {
 	//path         GLTFAnimationType
 	target       *GLTFAnimatableProperty
@@ -2143,14 +2183,17 @@ type GLTFAnimationChannel struct {
 	nodeIndex    *uint32
 	samplerIndex uint32
 }
+
 type GLTFAnimationSampler struct {
 	inputIndex    uint32
 	output        []float32
 	interpolation GLTFAnimationInterpolation
 }
+
 type GLTFTexture struct {
 	tex Texture
 }
+
 type GLTFAnimatableProperty struct {
 	restValue     interface{}
 	animatedValue interface{}
@@ -2222,6 +2265,7 @@ type Material struct {
 	emission                      GLTFAnimatableProperty // [3]float32
 	unlit                         bool
 }
+
 type Trans byte
 
 const (
@@ -2269,11 +2313,13 @@ type Skin struct {
 	inverseBindMatrices []float32
 	texture             *GLTFTexture
 }
+
 type Mesh struct {
 	name               string
 	morphTargetWeights GLTFAnimatableProperty // []float32
 	primitives         []*Primitive
 }
+
 type PrimitiveMode byte
 
 const (
@@ -2300,6 +2346,7 @@ type MorphTarget struct {
 	tangentBuffer  []float32
 	colorBuffer    []float32
 }
+
 type Primitive struct {
 	numVertices         uint32
 	numIndices          uint32
@@ -2408,6 +2455,7 @@ func loadEnvironment(filepath string) (*Environment, error) {
 	}
 	return env, nil
 }
+
 func loadglTFModel(filepath string) (*Model, error) {
 	mdl := &Model{offset: [3]float32{0, 0, 0}, rotation: [3]float32{0, 0, 0}, scale: [3]float32{1, 1, 1}}
 
@@ -3769,6 +3817,7 @@ func ExtractFrustumPlanes(MVPMatrix mgl.Mat4) [6]Plane {
 
 	return planes
 }
+
 func isCulled(MVPMatrix mgl.Mat4, box BoundingBox) bool {
 	points := [8][3]float32{
 		{box.min[0], box.min[1], box.min[2]},
@@ -3817,6 +3866,7 @@ func isCulled(MVPMatrix mgl.Mat4, box BoundingBox) bool {
 
 	return false
 }
+
 func drawNode(mdl *Model, scene *Scene, layerNumber int, defaultLayerNumber int, n *Node, camOffset [3]float32, drawBlended bool, unlit bool, viewProjMatrix mgl.Mat4, outlineConst float32) {
 	//mat := n.getLocalTransform()
 	//model = model.Mul4(mat)
@@ -4068,6 +4118,7 @@ func drawNodeShadow(mdl *Model, scene *Scene, n *Node, camOffset [3]float32, dra
 		}
 	}
 }
+
 func (model *Model) draw(bufferIndex uint32, sceneNumber int, layerNumber int, defaultLayerNumber int, offset [3]float32, proj, view, viewProjMatrix mgl.Mat4, outlineConst float32) {
 	if sceneNumber < 0 || sceneNumber >= len(model.scenes) {
 		return
@@ -4322,6 +4373,7 @@ func (model *Model) draw(bufferIndex uint32, sceneNumber int, layerNumber int, d
 	}
 	gfx.ReleaseModelPipeline()
 }
+
 func (s *Stage) drawModel(pos [2]float32, yofs float32, scl float32, layerNumber int32) {
 	if s.model == nil || !gfx.IsModelEnabled() {
 		return
@@ -4357,6 +4409,7 @@ func (s *Stage) drawModel(pos [2]float32, yofs float32, scl float32, layerNumber
 		s.model.draw(0, 1, int(layerNumber), 1, [3]float32{offset[0] / scale[0], offset[1] / scale[1], offset[2] / scale[2]}, proj, view, proj.Mul4(view), outlineConst)
 	}
 }
+
 func (channel *GLTFAnimationChannel) parseAnimationPointer(m *Model, pointer string) error {
 	channel.nodeIndex = nil
 	components := strings.Split(pointer, "/")
@@ -4671,6 +4724,7 @@ func (anim *GLTFAnimation) toggle(enabled bool) {
 		}
 	}
 }
+
 func (model *Model) step(turbo float32) {
 	for _, anim := range model.animations {
 		if anim.enabled == false {

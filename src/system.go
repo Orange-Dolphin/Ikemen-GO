@@ -42,13 +42,13 @@ var sys = System{
 	widthScale:        1,
 	heightScale:       1,
 	brightness:        256,
-	roundTime:         -1,
+	maxRoundTime:      -1,
 	turnsRecoveryRate: 1.0 / 300,
 	soundMixer:        &beep.Mixer{},
 	bgm:               *newBgm(),
 	soundChannels:     newSoundChannels(16),
-	allPalFX:          *newPalFX(),
-	bgPalFX:           *newPalFX(),
+	allPalFX:          newPalFX(),
+	bgPalFX:           newPalFX(),
 	ffx:               make(map[string]*FightFx),
 	//ffxRegexp:         "^(f)|^(s)|^(go)", // https://github.com/ikemen-engine/Ikemen-GO/issues/1620
 	sel:      *newSelect(),
@@ -57,7 +57,6 @@ var sys = System{
 	loader:   *newLoader(),
 	numSimul: [...]int32{2, 2}, numTurns: [...]int32{2, 2},
 	ignoreMostErrors: true,
-	superpmap:        *newPalFX(),
 	stageList:        make(map[int32]*Stage),
 	wincnt:           wincntMap(make(map[string][]int32)),
 	wincntFileName:   "save/autolevel.save",
@@ -83,6 +82,9 @@ var sys = System{
 	commandLists:         make([]*CommandList, 0),
 	arenaSaveMap:         make(map[int]*arena.Arena),
 	arenaLoadMap:         make(map[int]*arena.Arena),
+	debugAccel:           1, // TODO: We probably shouldn't rely on this being initialized to 1
+	// Match loop variables
+	autolvmul: math.Pow(2, 1.0/12), // Handicap levels for Random Test mode
 }
 
 type TeamMode int32
@@ -105,7 +107,7 @@ type System struct {
 	gameEnd, frameSkip      bool
 	redrawWait              struct{ nextTime, lastDraw time.Time }
 	brightness              int32
-	roundTime               int32
+	maxRoundTime            int32
 	turnsRecoveryRate       float32
 	debugFont               *TextSprite
 	debugDisplay            bool
@@ -113,7 +115,8 @@ type System struct {
 	soundMixer              *beep.Mixer
 	bgm                     Bgm
 	soundChannels           *SoundChannels
-	allPalFX, bgPalFX       PalFX
+	allPalFX                *PalFX
+	bgPalFX                 *PalFX
 	lifebar                 Lifebar
 	cfg                     Config
 	ffx                     map[string]*FightFx
@@ -132,7 +135,7 @@ type System struct {
 	inputRemap              [MaxPlayerNo]int
 	round                   int32
 	intro                   int32
-	time                    int32
+	curRoundTime            int32
 	lastHitter              [2]int
 	winTeam                 int
 	winType                 [2]WinType
@@ -160,17 +163,13 @@ type System struct {
 	pausetimebuffer         int32
 	pausebg                 bool
 	pauseendcmdbuftime      int32
-	pauseplayer             int
+	pauseplayerno           int
 	supertime               int32
 	supertimebuffer         int32
 	superpausebg            bool
 	superendcmdbuftime      int32
 	superplayerno           int
 	superdarken             bool
-	superanim               *Animation
-	superpmap               PalFX
-	superpos                [2]float32
-	superscale              [2]float32
 	superp2defmul           float32
 	envcol                  [3]int32
 	envcol_time             int32
@@ -194,7 +193,7 @@ type System struct {
 	xmin, xmax              float32
 	zmin, zmax              float32
 	winskipped              bool
-	paused, step            bool
+	paused, frameStepFlag   bool
 	roundResetFlg           bool
 	reloadFlg               bool
 	reloadStageFlg          bool
@@ -217,13 +216,9 @@ type System struct {
 	finishType              FinishType
 	waitdown                int32
 	slowtime                int32
-	slowtimeTrigger         int32
 	wintime                 int32
-	projs                   [MaxPlayerNo][]Projectile
-	explods                 [MaxPlayerNo][]Explod
-	explodsLayerN1          [MaxPlayerNo][]int
-	explodsLayer0           [MaxPlayerNo][]int
-	explodsLayer1           [MaxPlayerNo][]int
+	projs                   [MaxPlayerNo][]*Projectile
+	explods                 [MaxPlayerNo][]*Explod
 	changeStateNest         int32
 	spritesLayerN1          DrawList
 	spritesLayerU           DrawList
@@ -241,7 +236,7 @@ type System struct {
 	debugc2stb              ClsnRect
 	debugcsize              ClsnRect
 	debugch                 ClsnRect
-	accel                   float32
+	debugAccel              float32
 	clsnSpr                 Sprite
 	clsnDisplay             bool
 	lifebarHide             bool
@@ -326,6 +321,12 @@ type System struct {
 	saveStateFlag   bool
 	loadStateFlag   bool
 
+	// Match loop variables
+	autolvmul    float64
+	autolevels   [MaxPlayerNo]int32
+	fightLoopEnd bool
+	roundBackup  RoundStartBackup
+
 	// for avg. FPS calculations
 	gameFPS       float32
 	prevTimestamp float64
@@ -348,6 +349,17 @@ func (s *System) init(w, h int32) *lua.LState {
 	// Create a system window.
 	s.window, err = s.newWindow(int(s.scrrect[2]), int(s.scrrect[3]))
 	chk(err)
+
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Println("Error getting executable path:", err)
+	} else {
+		// Change the context for Darwin if we're in an app bundle
+		if isRunningInsideAppBundle(exePath) {
+			os.Chdir(path.Dir(exePath))
+			os.Chdir("../../../")
+		}
+	}
 
 	// Update the gamepad mappings with user mappings, if present.
 	input.UpdateGamepadMappings(sys.cfg.Config.GamepadMappings)
@@ -376,17 +388,6 @@ func (s *System) init(w, h int32) *lua.LState {
 					}
 				}
 			}
-		}
-	}
-
-	exePath, err := os.Executable()
-	if err != nil {
-		fmt.Println("Error getting executable path:", err)
-	} else {
-		// Change the context for Darwin if we're in an app bundle
-		if isRunningInsideAppBundle(exePath) {
-			os.Chdir(path.Dir(exePath))
-			os.Chdir("../../../")
 		}
 	}
 
@@ -771,12 +772,38 @@ func (s *System) anyButton() bool {
 	return s.anyHardButton()
 }
 
-func (s *System) playerID(id int32) *Char {
-	return s.charList.get(id)
+func (s *System) anyChar() *Char {
+	for i := range s.chars {
+		for j := range s.chars[i] {
+			if s.chars[i][j] != nil {
+				return s.chars[i][j]
+			}
+		}
+	}
+	return nil
 }
 
-func (s *System) playerIndex(id int32) *Char {
-	return s.charList.getIndex(id)
+func (s *System) playerID(id int32) *Char {
+	return s.charList.getCharWithID(id)
+}
+
+func (s *System) playerIndexRedirect(idx int32) *Char {
+	// We will ignore destroyed helpers here, like Mugen redirections
+	var searchIdx int32
+	for _, p := range sys.charList.runOrder {
+		if p != nil && !p.csf(CSF_destroy) {
+			if searchIdx == idx {
+				return p
+			}
+			searchIdx++
+		}
+	}
+
+	//if idx >= 0 && int(idx) < len(s.charList.runOrder) {
+	//	return s.charList.runOrder[idx]
+	//}
+
+	return nil
 }
 
 // We must check if wins are greater than 0 because modes like Training may have "0 rounds to win"
@@ -792,11 +819,13 @@ func (s *System) playerIDExist(id BytecodeValue) BytecodeValue {
 	return BytecodeBool(s.playerID(id.ToI()) != nil)
 }
 
+// TODO: This is redundant since the index always exists if "NumPlayer >= idx-1"
+// Maybe remove it or make it ignore destroyed helpers at least
 func (s *System) playerIndexExist(idx BytecodeValue) BytecodeValue {
 	if idx.IsSF() {
 		return BytecodeSF()
 	}
-	return BytecodeBool(s.playerIndex(idx.ToI()) != nil)
+	return BytecodeBool(s.playerIndexRedirect(idx.ToI()) != nil)
 }
 
 func (s *System) playerNoExist(no BytecodeValue) BytecodeValue {
@@ -809,10 +838,6 @@ func (s *System) playerNoExist(no BytecodeValue) BytecodeValue {
 		exist = len(sys.chars[number]) > 0
 	}
 	return BytecodeBool(exist)
-}
-
-func (s *System) playercount() int32 {
-	return int32(len(s.charList.runOrder))
 }
 
 func (s *System) palfxvar(x int32, y int32) int32 {
@@ -881,7 +906,7 @@ func (s *System) screenWidth() float32 {
 	return float32(s.gameWidth)
 }
 
-func (s *System) roundEnd() bool {
+func (s *System) roundEnded() bool {
 	return s.intro < -s.lifebar.ro.over_hittime
 }
 
@@ -1150,7 +1175,8 @@ func (s *System) newCharId() int32 {
 		taken = false
 		for _, p := range s.chars {
 			for _, c := range p {
-				if c.id == newid && c.preserve != 0 && !c.csf(CSF_destroy) {
+				//if c.id == newid && c.preserve != 0 && !c.csf(CSF_destroy) {
+				if c.id == newid && c.preserve && !c.csf(CSF_destroy) {
 					taken = true
 					newid++
 					break
@@ -1171,12 +1197,11 @@ func (s *System) resetGblEffect() {
 	s.envShake.clear()
 	s.pausetime, s.pausetimebuffer = 0, 0
 	s.supertime, s.supertimebuffer = 0, 0
-	s.superanim = nil
 	s.envcol_time = 0
 	s.specialFlag = 0
 }
 
-func (s *System) stopAllSound() {
+func (s *System) stopAllCharSound() {
 	for _, p := range s.chars {
 		for _, c := range p {
 			c.soundChannels.SetSize(0)
@@ -1224,26 +1249,28 @@ func (s *System) restoreAllVolume() {
 
 func (s *System) clearAllSound() {
 	s.soundChannels.StopAll()
-	s.stopAllSound()
+	s.stopAllCharSound()
 	s.soundMixer.Clear()
 }
 
 // Remove the player's explods, projectiles and (optionally) helpers as well as stopping their sounds
-func (s *System) clearPlayerAssets(pn int, destroy bool) {
+func (s *System) clearPlayerAssets(pn int, forceDestroy bool) {
 	if len(s.chars[pn]) > 0 {
 		p := s.chars[pn][0]
 		for _, h := range s.chars[pn][1:] {
-			if destroy || h.preserve == 0 || (s.roundResetFlg && h.preserve == s.round) {
+			h.soundChannels.SetSize(0)
+			//if forceDestroy || h.preserve == 0 || (s.roundResetFlg && h.preserve <= s.round) {
+			if !h.preserve || forceDestroy { // F4 now destroys "preserve" helpers when reloading round start backup
 				h.destroy()
 			}
-			h.soundChannels.SetSize(0)
 		}
-		if destroy {
+		if forceDestroy {
 			p.children = p.children[:0]
 		} else {
 			for i, ch := range p.children {
 				if ch != nil {
-					if ch.preserve == 0 || (s.roundResetFlg && ch.preserve == s.round) {
+					//if ch.preserve == 0 || (s.roundResetFlg && ch.preserve == s.round) {
+					if !ch.preserve {
 						p.children[i] = nil
 					}
 				}
@@ -1254,12 +1281,17 @@ func (s *System) clearPlayerAssets(pn int, destroy bool) {
 	}
 	s.projs[pn] = s.projs[pn][:0]
 	s.explods[pn] = s.explods[pn][:0]
-	s.explodsLayerN1[pn] = s.explodsLayerN1[pn][:0]
-	s.explodsLayer0[pn] = s.explodsLayer0[pn][:0]
-	s.explodsLayer1[pn] = s.explodsLayer1[pn][:0]
 }
 
-func (s *System) nextRound() {
+func (s *System) resetRoundState() {
+	s.roundBackup.Restore()
+	s.resetFrameTime()
+
+	s.paused = false
+	s.introSkipped = false
+	s.roundResetFlg = false
+	s.reloadFlg, s.reloadStageFlg, s.reloadLifebarFlg = false, false, false
+
 	s.resetGblEffect()
 	s.lifebar.reset()
 	s.saveStateFlag = false
@@ -1275,7 +1307,7 @@ func (s *System) nextRound() {
 	s.wintime = s.lifebar.ro.over_wintime
 	s.winskipped = false
 	s.intro = s.lifebar.ro.start_waittime + s.lifebar.ro.ctrl_time + 1
-	s.time = s.roundTime
+	s.curRoundTime = s.maxRoundTime
 	s.nextCharId = s.cfg.Config.HelperMax
 	if (s.tmode[0] == TM_Turns && s.wins[1] >= s.numTurns[0]-1) ||
 		(s.tmode[0] != TM_Turns && s.wins[1] >= s.lifebar.ro.match_wins[0]-1) {
@@ -1291,6 +1323,7 @@ func (s *System) nextRound() {
 	} else {
 		roundRef = s.round
 	}
+
 	if s.stageLoop && !s.roundResetFlg {
 		var keys []int
 		for k := range s.stageList {
@@ -1303,6 +1336,7 @@ func (s *System) nextRound() {
 			s.stageLoopNo = 0
 		}
 	}
+
 	var swap bool
 	if _, ok := s.stageList[roundRef]; ok {
 		s.stage = s.stageList[roundRef]
@@ -1316,70 +1350,80 @@ func (s *System) nextRound() {
 			}
 		}
 	}
+
 	s.cam.stageCamera = s.stage.stageCamera
 	s.cam.Init()
 	s.screenleft = float32(s.stage.screenleft) * s.stage.localscl
 	s.screenright = float32(s.stage.screenright) * s.stage.localscl
+
 	if s.stage.resetbg || swap {
 		s.stage.reset()
 	}
 	s.cam.ResetZoomdelay()
-	for i, p := range s.chars {
-		if len(p) > 0 {
-			s.nextCharId = Max(s.nextCharId, p[0].id+1) // nextCharId can't be this char's ID
-			s.clearPlayerAssets(i, false)
-			p[0].posReset()
-			p[0].setCtrl(false)
-			p[0].clearState()
-			p[0].prepareNextRound()
-			p[0].varRangeSet(0, s.cgi[i].data.intpersistindex-1, 0)
-			p[0].fvarRangeSet(0, s.cgi[i].data.floatpersistindex-1, 0)
-			for j := range p[0].cmd {
-				p[0].cmd[j].BufReset()
-			}
-			if s.roundsExisted[i&1] == 0 {
-				s.cgi[i].palettedata.palList.ResetRemap()
-				if s.cgi[i].sff.header.Ver0 == 1 {
-					p[0].remapPal(p[0].getPalfx(),
-						[...]int32{1, 1}, [...]int32{1, s.cgi[i].palno})
-				}
-			}
-			s.cgi[i].clearPCTime()
-		}
-	}
-	for _, p := range s.chars {
-		if len(p) > 0 {
-			zeroDeclared := p[0].gi().anim[0] != nil
 
-			if zeroDeclared {
-				p[0].selfState(5900, 0, -1, 0, "")
-			} else {
-				// Default to first anim in .AIR
-				var firstAnim int32
-				for k := range p[0].gi().anim {
-					firstAnim = k
-					break
-				}
-				p[0].selfState(5900, firstAnim, -1, 0, "")
+	for i, p := range s.chars {
+		if len(p) == 0 {
+			continue
+		}
+		s.nextCharId = Max(s.nextCharId, p[0].id+1)
+		s.clearPlayerAssets(i, false)
+		p[0].posReset()
+		p[0].setCtrl(false)
+		p[0].clearState()
+		p[0].prepareNextRound()
+		p[0].varRangeSet(0, s.cgi[i].data.intpersistindex-1, 0)
+		p[0].fvarRangeSet(0, s.cgi[i].data.floatpersistindex-1, 0)
+		for j := range p[0].cmd {
+			p[0].cmd[j].BufReset()
+		}
+		if s.roundsExisted[i&1] == 0 {
+			s.cgi[i].palettedata.palList.ResetRemap()
+			if s.cgi[i].sff.header.Ver0 == 1 {
+				p[0].remapPal(p[0].getPalfx(),
+					[...]int32{1, 1}, [...]int32{1, s.cgi[i].palno})
 			}
 		}
+		s.cgi[i].clearPCTime()
+	}
+
+	// Place characters in state 5900
+	for _, p := range s.chars {
+		if len(p) == 0 {
+			continue
+		}
+		// Select anim 0
+		firstAnim := int32(0)
+		// Default to first anim in .AIR if 0 was not found
+		if p[0].gi().anim[0] == nil {
+			for k := range p[0].gi().anim {
+				firstAnim = k
+				break
+			}
+		}
+		p[0].selfState(5900, firstAnim, -1, 0, "")
 	}
 }
 
+func (s *System) resetRound() {
+	s.resetRoundState()
+	s.runMainThreadTask()
+	gfx.Await()
+}
+
 func (s *System) debugPaused() bool {
-	return s.paused && !s.step && s.oldTickCount < s.tickCount
+	return s.paused && !s.frameStepFlag && s.oldTickCount < s.tickCount
 }
 
 // "Tick frames" are the frames where most of the game logic happens
 func (s *System) tickFrame() bool {
-	return (!s.paused || s.step) && s.oldTickCount < s.tickCount
+	return (!s.paused || s.frameStepFlag) && s.oldTickCount < s.tickCount
 }
 
 // "Tick next frame" is right after the "tick frame"
 // Where for instance the collision detections happen
 func (s *System) tickNextFrame() bool {
 	return int(s.tickCountF+s.nextAddTime) > s.tickCount &&
-		(!s.paused || s.step || s.oldTickCount >= s.tickCount)
+		(!s.paused || s.frameStepFlag || s.oldTickCount >= s.tickCount)
 }
 
 // This divides a frame into fractions for the purpose of drawing position interpolation
@@ -1485,286 +1529,9 @@ func (s *System) action() {
 	var x, y, scl float32 = s.cam.Pos[0], s.cam.Pos[1], s.cam.Scale / s.cam.BaseScale()
 	s.cam.ResetTracking()
 
-	// Run fight screen
-	if s.lifebar.ro.act() {
-		if s.intro > s.lifebar.ro.ctrl_time {
-			s.intro--
-			if s.gsf(GSF_intro) && s.intro <= s.lifebar.ro.ctrl_time {
-				s.intro = s.lifebar.ro.ctrl_time + 1
-			}
-		} else if s.intro > 0 {
-			if s.intro == s.lifebar.ro.ctrl_time {
-				for _, p := range s.chars {
-					if len(p) > 0 {
-						if !p[0].asf(ASF_nointroreset) {
-							p[0].posReset()
-						}
-					}
-				}
-			}
-			s.intro--
-			if s.intro == 0 {
-				for _, p := range s.chars {
-					if len(p) > 0 {
-						if p[0].alive() {
-							p[0].unsetSCF(SCF_over_alive)
-							if !p[0].scf(SCF_standby) || p[0].teamside == -1 {
-								p[0].setCtrl(true)
-								if p[0].ss.no != 0 && !p[0].asf(ASF_nointroreset) {
-									p[0].selfState(0, -1, -1, 1, "")
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		if s.intro == 0 && s.time > 0 && !s.gsf(GSF_timerfreeze) &&
-			(s.supertime <= 0 || !s.superpausebg) && (s.pausetime <= 0 || !s.pausebg) {
-			s.time--
-		}
-
-		// Check if round ended by KO or time over and set win types
-		fin := func() bool {
-			checkPerfect := func(team int) bool {
-				for i := team; i < MaxSimul*2; i += 2 {
-					if len(s.chars[i]) > 0 &&
-						s.chars[i][0].life < s.chars[i][0].lifeMax {
-						return false
-					}
-				}
-				return true
-			}
-			if s.intro > 0 {
-				return false
-			}
-			// KO
-			ko := [...]bool{true, true}
-			for loser := range ko {
-				// Check if all players or leader on one side are KO
-				for i := loser; i < MaxSimul*2; i += 2 {
-					if len(s.chars[i]) > 0 && s.chars[i][0].teamside != -1 {
-						if s.chars[i][0].alive() {
-							ko[loser] = false
-						} else if (s.tmode[i&1] == TM_Simul && s.cfg.Options.Simul.LoseOnKO && s.aiLevel[i] == 0) ||
-							(s.tmode[i&1] == TM_Tag && s.cfg.Options.Tag.LoseOnKO) {
-							ko[loser] = true
-							break
-						}
-					}
-				}
-				if ko[loser] {
-					if checkPerfect(loser ^ 1) {
-						s.winType[loser^1].SetPerfect()
-					}
-				}
-			}
-			// Time over
-			ft := s.finishType
-			if s.time == 0 {
-				s.winType[0], s.winType[1] = WT_Time, WT_Time
-				l := [2]float32{}
-				for i := 0; i < 2; i++ { // Check life percentage of each team
-					for j := i; j < MaxSimul*2; j += 2 {
-						if len(s.chars[j]) > 0 {
-							if s.tmode[i] == TM_Simul || s.tmode[i] == TM_Tag {
-								l[i] += (float32(s.chars[j][0].life) / float32(s.numSimul[i])) / float32(s.chars[j][0].lifeMax)
-							} else {
-								l[i] += float32(s.chars[j][0].life) / float32(s.chars[j][0].lifeMax)
-							}
-						}
-					}
-				}
-				// Some other methods were considered to make the winner decision more fair, like a minimum % difference
-				// But ultimately a direct comparison seems to be the fairest method
-				if math.Round(float64(l[0]*1000)) != math.Round(float64(l[1]*1000)) || // Convert back to 1000 life points scale then round it to reduce calculation errors
-					((l[0] >= float32(1.0)) != (l[1] >= float32(1.0))) { // But make sure the rounding doesn't turn a perfect into a draw game
-					winner := 0
-					if l[0] < l[1] {
-						winner = 1
-					}
-					if checkPerfect(winner) {
-						s.winType[winner].SetPerfect()
-					}
-					s.finishType = FT_TO
-					s.winTeam = winner
-				} else { // Draw game
-					s.finishType = FT_TODraw
-					s.winTeam = -1
-				}
-			}
-			if s.intro >= -1 && (ko[0] || ko[1]) {
-				if ko[0] && ko[1] {
-					s.finishType = FT_DKO
-					s.winTeam = -1
-				} else {
-					s.finishType = FT_KO
-					s.winTeam = int(Btoi(ko[0]))
-				}
-			}
-			// Update win triggers if finish type was changed
-			if ft != s.finishType {
-				for i, p := range s.chars {
-					if len(p) > 0 && ko[^i&1] {
-						for _, h := range p {
-							for _, tid := range h.targets {
-								if t := s.playerID(tid); t != nil {
-									if t.ghv.attr&int32(AT_AH) != 0 {
-										s.winTrigger[i&1] = WT_Hyper
-									} else if t.ghv.attr&int32(AT_AS) != 0 && s.winTrigger[i&1] == WT_Normal {
-										s.winTrigger[i&1] = WT_Special
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-			return ko[0] || ko[1] || s.time == 0
-		}
-
-		// Post round
-		if s.roundEnd() || fin() {
-			rs4t := -s.lifebar.ro.over_waittime
-			fadeoutStart := rs4t - 2 - s.lifebar.ro.over_time + s.lifebar.ro.rt.fadeout_time
-
-			s.intro--
-
-			if s.intro == -s.lifebar.ro.over_hittime && s.finishType != FT_NotYet {
-				// Consecutive wins counter
-				winner := [...]bool{!s.chars[1][0].win(), !s.chars[0][0].win()}
-				if !winner[0] || !winner[1] ||
-					s.tmode[0] == TM_Turns || s.tmode[1] == TM_Turns ||
-					s.draws >= s.lifebar.ro.match_maxdrawgames[0] ||
-					s.draws >= s.lifebar.ro.match_maxdrawgames[1] {
-					for i, win := range winner {
-						if win {
-							s.wins[i]++
-							if s.matchOver() && s.wins[^i&1] == 0 {
-								s.consecutiveWins[i]++
-							}
-							s.consecutiveWins[^i&1] = 0
-						}
-					}
-				}
-			}
-
-			// Check if player skipped win pose time
-			if !s.winskipped && s.roundWinTime() && s.anyButton() && !s.gsf(GSF_roundnotskip) {
-				s.intro = Min(s.intro, fadeoutStart)
-				s.winskipped = true
-			}
-
-			// Start fadeout effect
-			if s.intro == fadeoutStart {
-				if s.gsf(GSF_roundnotover) && !s.winskipped {
-					// roundnotover prevents fadeoutStart from being reached
-					s.intro++
-				} else if s.lifebar.ro.rt.fadeoutTimer == 0 {
-					// Trigger fadeout only once
-					s.lifebar.ro.rt.fadeoutTimer = s.lifebar.ro.rt.fadeout_time
-				}
-			}
-
-			if s.winskipped || !s.roundWinTime() {
-				// Check if game can proceed into roundstate 4
-				if s.waitdown > 0 {
-					if s.intro == rs4t-1 {
-						for _, p := range s.chars {
-							if len(p) > 0 {
-								// Check if this player is ready to proceed to roundstate 4
-								// TODO: The game should normally only wait for players that are active in the fight // || p[0].teamside == -1 || p[0].scf(SCF_standby)
-								// TODO: This could be manageable from the char's side with an AssertSpecial or such
-								if p[0].scf(SCF_over_alive) || p[0].scf(SCF_over_ko) ||
-									(p[0].scf(SCF_ctrl) && p[0].ss.moveType == MT_I && p[0].ss.stateType != ST_A && p[0].ss.stateType != ST_L) {
-									continue
-								}
-								// Freeze timer if any player is not ready to proceed yet
-								s.intro = rs4t
-								break
-							}
-						}
-					}
-				}
-
-				// Disable ctrl (once) at the first frame of roundstate 4
-				if s.intro == rs4t-1 {
-					for _, p := range s.chars {
-						if len(p) > 0 {
-							p[0].setCtrl(false)
-						}
-					}
-				}
-
-				// Start running wintime counter only after getting into roundstate 4
-				if s.intro < rs4t && !s.roundWinTime() {
-					s.wintime--
-				}
-
-				// Set characters into win/lose poses, update win counters
-				if s.roundWinStates() {
-					if s.waitdown >= 0 {
-						winner := [...]bool{!s.chars[1][0].win(), !s.chars[0][0].win()}
-						if !winner[0] || !winner[1] ||
-							s.tmode[0] == TM_Turns || s.tmode[1] == TM_Turns ||
-							s.draws >= s.lifebar.ro.match_maxdrawgames[0] ||
-							s.draws >= s.lifebar.ro.match_maxdrawgames[1] {
-							for i, win := range winner {
-								if win {
-									s.lifebar.wi[i].add(s.winType[i])
-									if s.matchOver() {
-										// In a draw game both players go back to 0 wins
-										if winner[0] == winner[1] { // sys.winTeam < 0
-											s.lifebar.wc[0].wins = 0
-											s.lifebar.wc[1].wins = 0
-										} else {
-											if s.wins[i] >= s.matchWins[i] {
-												s.lifebar.wc[i].wins++
-											}
-										}
-									}
-								}
-							}
-						} else {
-							s.draws++
-						}
-					}
-
-					for _, p := range s.chars {
-						if len(p) > 0 {
-							// Default life recovery. Used only if externalized Lua implementation is disabled
-							if len(sys.cfg.Common.Lua) == 0 && s.waitdown >= 0 && s.time > 0 && p[0].win() &&
-								p[0].alive() && !s.matchOver() &&
-								(s.tmode[0] == TM_Turns || s.tmode[1] == TM_Turns) {
-								p[0].life += int32((float32(p[0].lifeMax) *
-									float32(s.time) / 60) * s.turnsRecoveryRate)
-								if p[0].life > p[0].lifeMax {
-									p[0].life = p[0].lifeMax
-								}
-							}
-							// TODO: These changestates ought to be unhardcoded
-							if !p[0].scf(SCF_over_alive) && !p[0].hitPause() && p[0].alive() && p[0].animNo != 5 {
-								p[0].setSCF(SCF_over_alive)
-								if p[0].win() {
-									p[0].selfState(180, -1, -1, -1, "")
-								} else if p[0].lose() {
-									p[0].selfState(170, -1, -1, -1, "")
-								} else {
-									p[0].selfState(175, -1, -1, -1, "")
-								}
-							}
-						}
-					}
-
-					s.waitdown = 0
-				}
-
-				s.waitdown--
-			}
-		} else if s.intro < 0 {
-			s.intro = 0
-		}
-	}
+	// Update fight screen
+	// This is also reflected on characters (intros, win poses)
+	s.runFightScreen()
 
 	// Run "tick frame"
 	if s.tickFrame() {
@@ -1817,9 +1584,6 @@ func (s *System) action() {
 			// "Intro" seems to have been deliberately added. Does not persist in Mugen 1.1
 			// "NoKOSlow" added to facilitate custom slowdown. In Mugen that flag only needs to be asserted in first frame of KO slowdown
 			s.specialFlag = (s.specialFlag&GSF_intro | s.specialFlag&GSF_nokoslow | s.specialFlag&GSF_timerfreeze)
-		}
-		if s.superanim != nil {
-			s.superanim.Action()
 		}
 		s.charList.action()
 		s.nomusic = s.gsf(GSF_nomusic) && !sys.postMatchFlg
@@ -1888,29 +1652,7 @@ func (s *System) action() {
 		s.xmin = s.cam.minLeft
 	}
 	s.charList.xScreenBound()
-	// Superpause effect
-	if s.superanim != nil {
-		s.spritesLayer1.add(&SprData{
-			anim:         s.superanim,
-			fx:           &s.superpmap,
-			pos:          s.superpos,
-			scl:          s.superscale,
-			alpha:        [2]int32{-1},
-			priority:     5,
-			rot:          Rotation{},
-			screen:       false,
-			undarken:     true,
-			oldVer:       s.cgi[s.superplayerno].mugenver[0] != 1,
-			facing:       1,
-			airOffsetFix: [2]float32{1, 1},
-			projection:   0,
-			fLength:      0,
-			window:       [4]float32{0, 0, 0, 0},
-		})
-		if s.superanim.loopend {
-			s.superanim = nil // Not allowed to loop
-		}
-	}
+
 	for i := range s.projs {
 		for j := range s.projs[i] {
 			if s.projs[i][j].id >= 0 {
@@ -1918,50 +1660,352 @@ func (s *System) action() {
 			}
 		}
 	}
+
 	s.charList.cueDraw()
-	explUpdate := func(edl *[len(s.chars)][]int, drop bool) {
-		for i, el := range *edl {
-			for j := len(el) - 1; j >= 0; j-- {
-				if el[j] >= 0 {
-					s.explods[i][el[j]].update(s.cgi[i].mugenverF, i)
-					if s.explods[i][el[j]].id == IErr {
-						if drop {
-							el = append(el[:j], el[j+1:]...)
-							(*edl)[i] = el
-						} else {
-							el[j] = -1
+	s.explodUpdate()
+
+	// Adjust game speed
+	if s.tickNextFrame() {
+		spd := float32(s.gameLogicSpeed()) / float32(s.gameRenderSpeed())
+
+		// KO slowdown
+		if st := s.getSlowtime(); st > 0 {
+			if !s.gsf(GSF_nokoslow) {
+				base := s.lifebar.ro.slow_speed
+				fade := s.lifebar.ro.slow_fadetime
+				spd *= base
+				if st < fade {
+					ratio := float32(fade-st) / float32(fade)
+					spd = base + (1-base)*ratio
+				}
+			}
+			s.slowtime--
+		}
+
+		// Outside match or while frame stepping
+		if s.postMatchFlg || s.frameStepFlag {
+			spd = 1
+		}
+
+		s.turbo = spd
+	}
+	s.tickSound()
+	return
+}
+
+// Update all explods for all players
+func (s *System) explodUpdate() {
+	for i, playerExplods := range s.explods {
+		tempSlice := playerExplods[:0] // Reuse backing array
+		for _, e := range playerExplods {
+			e.update(i)
+			// Keep only valid explods in the slice
+			if e.id != IErr {
+				tempSlice = append(tempSlice, e)
+			}
+		}
+		s.explods[i] = tempSlice
+	}
+}
+
+func (s *System) getSlowtime() int32 {
+	if s.slowtime > 0 && s.intro < 0 && s.curRoundTime != 0 {
+		return s.slowtime
+	}
+	return 0
+}
+
+func (s *System) runFightScreen() {
+	if !s.lifebar.ro.act() {
+		return
+	}
+
+	// Intros
+	if s.intro > s.lifebar.ro.ctrl_time {
+		s.intro--
+		if s.gsf(GSF_intro) && s.intro <= s.lifebar.ro.ctrl_time {
+			s.intro = s.lifebar.ro.ctrl_time + 1
+		}
+	} else if s.intro > 0 {
+		if s.intro == s.lifebar.ro.ctrl_time {
+			for _, p := range s.chars {
+				if len(p) > 0 {
+					if !p[0].asf(ASF_nointroreset) {
+						p[0].posReset()
+					}
+				}
+			}
+		}
+		s.intro--
+		if s.intro == 0 {
+			for _, p := range s.chars {
+				if len(p) > 0 {
+					if p[0].alive() {
+						p[0].unsetSCF(SCF_over_alive)
+						if !p[0].scf(SCF_standby) || p[0].teamside == -1 {
+							p[0].setCtrl(true)
+							if p[0].ss.no != 0 && !p[0].asf(ASF_nointroreset) {
+								p[0].selfState(0, -1, -1, 1, "")
+							}
 						}
 					}
 				}
 			}
 		}
 	}
-	explUpdate(&s.explodsLayerN1, true)
-	explUpdate(&s.explodsLayer0, true)
-	explUpdate(&s.explodsLayer1, false)
-	// Adjust game speed
-	if s.tickNextFrame() {
-		spd := ((60 + s.cfg.Options.GameSpeed*5) / float32(s.cfg.Config.Framerate)) * s.accel
-		// KO slowdown
-		s.slowtimeTrigger = 0
-		if s.intro < 0 && s.time != 0 && s.slowtime > 0 {
-			if !s.gsf(GSF_nokoslow) {
-				spd *= s.lifebar.ro.slow_speed
-				if s.slowtime < s.lifebar.ro.slow_fadetime {
-					spd += (float32(1) - s.lifebar.ro.slow_speed) * float32(s.lifebar.ro.slow_fadetime-s.slowtime) / float32(s.lifebar.ro.slow_fadetime)
+
+	// Ongoing round
+	if s.intro == 0 && s.curRoundTime > 0 && !s.gsf(GSF_timerfreeze) &&
+		(s.supertime <= 0 || !s.superpausebg) && (s.pausetime <= 0 || !s.pausebg) {
+		s.curRoundTime--
+	}
+
+	// Post round
+	if s.roundEnded() || s.roundEndDecision() {
+		rs4t := -s.lifebar.ro.over_waittime
+		fadeoutStart := rs4t - 2 - s.lifebar.ro.over_time + s.lifebar.ro.rt.fadeout_time
+
+		s.intro--
+
+		if s.intro == -s.lifebar.ro.over_hittime && s.finishType != FT_NotYet {
+			// Consecutive wins counter
+			winner := [...]bool{!s.chars[1][0].win(), !s.chars[0][0].win()}
+			if !winner[0] || !winner[1] ||
+				s.tmode[0] == TM_Turns || s.tmode[1] == TM_Turns ||
+				s.draws >= s.lifebar.ro.match_maxdrawgames[0] ||
+				s.draws >= s.lifebar.ro.match_maxdrawgames[1] {
+				for i, win := range winner {
+					if win {
+						s.wins[i]++
+						if s.matchOver() && s.wins[^i&1] == 0 {
+							s.consecutiveWins[i]++
+						}
+						s.consecutiveWins[^i&1] = 0
+					}
 				}
 			}
-			s.slowtimeTrigger = s.slowtime
-			s.slowtime--
 		}
-		// Outside match or while frame stepping
-		if s.postMatchFlg || s.step {
-			spd = 1
+
+		// Check if player skipped win pose time
+		if !s.winskipped && s.roundWinTime() && s.anyButton() && !s.gsf(GSF_roundnotskip) {
+			s.intro = Min(s.intro, fadeoutStart)
+			s.winskipped = true
 		}
-		s.turbo = spd
+
+		// Start fadeout effect
+		if s.intro == fadeoutStart {
+			if s.gsf(GSF_roundnotover) && !s.winskipped {
+				// roundnotover prevents fadeoutStart from being reached
+				s.intro++
+			} else if s.lifebar.ro.rt.fadeoutTimer == 0 {
+				// Trigger fadeout only once
+				s.lifebar.ro.rt.fadeoutTimer = s.lifebar.ro.rt.fadeout_time
+			}
+		}
+
+		if s.winskipped || !s.roundWinTime() {
+			// Check if game can proceed into roundstate 4
+			if s.waitdown > 0 {
+				if s.intro == rs4t-1 {
+					for _, p := range s.chars {
+						if len(p) > 0 {
+							// Check if this player is ready to proceed to roundstate 4
+							// TODO: The game should normally only wait for players that are active in the fight // || p[0].teamside == -1 || p[0].scf(SCF_standby)
+							// TODO: This could be manageable from the char's side with an AssertSpecial or such
+							if p[0].scf(SCF_over_alive) || p[0].scf(SCF_over_ko) ||
+								(p[0].scf(SCF_ctrl) && p[0].ss.moveType == MT_I && p[0].ss.stateType != ST_A && p[0].ss.stateType != ST_L) {
+								continue
+							}
+							// Freeze timer if any player is not ready to proceed yet
+							s.intro = rs4t
+							break
+						}
+					}
+				}
+			}
+
+			// Disable ctrl (once) at the first frame of roundstate 4
+			if s.intro == rs4t-1 {
+				for _, p := range s.chars {
+					if len(p) > 0 {
+						p[0].setCtrl(false)
+					}
+				}
+			}
+
+			// Start running wintime counter only after getting into roundstate 4
+			if s.intro < rs4t && !s.roundWinTime() {
+				s.wintime--
+			}
+
+			// Set characters into win/lose poses, update win counters
+			if s.roundWinStates() {
+				if s.waitdown >= 0 {
+					winner := [...]bool{!s.chars[1][0].win(), !s.chars[0][0].win()}
+					if !winner[0] || !winner[1] ||
+						s.tmode[0] == TM_Turns || s.tmode[1] == TM_Turns ||
+						s.draws >= s.lifebar.ro.match_maxdrawgames[0] ||
+						s.draws >= s.lifebar.ro.match_maxdrawgames[1] {
+						for i, win := range winner {
+							if win {
+								s.lifebar.wi[i].add(s.winType[i])
+								if s.matchOver() {
+									// In a draw game both players go back to 0 wins
+									if winner[0] == winner[1] { // sys.winTeam < 0
+										s.lifebar.wc[0].wins = 0
+										s.lifebar.wc[1].wins = 0
+									} else {
+										if s.wins[i] >= s.matchWins[i] {
+											s.lifebar.wc[i].wins++
+										}
+									}
+								}
+							}
+						}
+					} else {
+						s.draws++
+					}
+				}
+
+				for _, p := range s.chars {
+					if len(p) > 0 {
+						// Default life recovery. Used only if externalized Lua implementation is disabled
+						if len(sys.cfg.Common.Lua) == 0 && s.waitdown >= 0 && s.curRoundTime > 0 && p[0].win() &&
+							p[0].alive() && !s.matchOver() &&
+							(s.tmode[0] == TM_Turns || s.tmode[1] == TM_Turns) {
+							p[0].life += int32((float32(p[0].lifeMax) *
+								float32(s.curRoundTime) / 60) * s.turnsRecoveryRate)
+							if p[0].life > p[0].lifeMax {
+								p[0].life = p[0].lifeMax
+							}
+						}
+						// TODO: These changestates ought to be unhardcoded
+						if !p[0].scf(SCF_over_alive) && !p[0].hitPause() && p[0].alive() && p[0].animNo != 5 {
+							p[0].setSCF(SCF_over_alive)
+							if p[0].win() {
+								p[0].selfState(180, -1, -1, -1, "")
+							} else if p[0].lose() {
+								p[0].selfState(170, -1, -1, -1, "")
+							} else {
+								p[0].selfState(175, -1, -1, -1, "")
+							}
+						}
+					}
+				}
+
+				s.waitdown = 0
+			}
+
+			s.waitdown--
+		}
+	} else if s.intro < 0 {
+		s.intro = 0
 	}
-	s.tickSound()
-	return
+}
+
+// Check if the round ended by KO or time over and set win types
+func (s *System) roundEndDecision() bool {
+	checkPerfect := func(team int) bool {
+		for i := team; i < MaxSimul*2; i += 2 {
+			if len(s.chars[i]) > 0 &&
+				s.chars[i][0].life < s.chars[i][0].lifeMax {
+				return false
+			}
+		}
+		return true
+	}
+	if s.intro > 0 {
+		return false
+	}
+
+	// KO check
+	ko := [...]bool{true, true}
+	for loser := range ko {
+		// Check if all players or leader on one side are KO
+		for i := loser; i < MaxSimul*2; i += 2 {
+			if len(s.chars[i]) > 0 && s.chars[i][0].teamside != -1 {
+				if s.chars[i][0].alive() {
+					ko[loser] = false
+				} else if (s.tmode[i&1] == TM_Simul && s.cfg.Options.Simul.LoseOnKO && s.aiLevel[i] == 0) ||
+					(s.tmode[i&1] == TM_Tag && s.cfg.Options.Tag.LoseOnKO) {
+					ko[loser] = true
+					break
+				}
+			}
+		}
+		if ko[loser] {
+			if checkPerfect(loser ^ 1) {
+				s.winType[loser^1].SetPerfect()
+			}
+		}
+	}
+
+	// Time over
+	ft := s.finishType
+	if s.curRoundTime == 0 {
+		s.winType[0], s.winType[1] = WT_Time, WT_Time
+		l := [2]float32{}
+		for i := 0; i < 2; i++ { // Check life percentage of each team
+			for j := i; j < MaxSimul*2; j += 2 {
+				if len(s.chars[j]) > 0 {
+					if s.tmode[i] == TM_Simul || s.tmode[i] == TM_Tag {
+						l[i] += (float32(s.chars[j][0].life) / float32(s.numSimul[i])) / float32(s.chars[j][0].lifeMax)
+					} else {
+						l[i] += float32(s.chars[j][0].life) / float32(s.chars[j][0].lifeMax)
+					}
+				}
+			}
+		}
+		// Some other methods were considered to make the winner decision more fair, like a minimum % difference
+		// But ultimately a direct comparison seems to be the fairest method
+		if math.Round(float64(l[0]*1000)) != math.Round(float64(l[1]*1000)) || // Convert back to 1000 life points scale then round it to reduce calculation errors
+			((l[0] >= float32(1.0)) != (l[1] >= float32(1.0))) { // But make sure the rounding doesn't turn a perfect into a draw game
+			winner := 0
+			if l[0] < l[1] {
+				winner = 1
+			}
+			if checkPerfect(winner) {
+				s.winType[winner].SetPerfect()
+			}
+			s.finishType = FT_TO
+			s.winTeam = winner
+		} else { // Draw game
+			s.finishType = FT_TODraw
+			s.winTeam = -1
+		}
+	}
+
+	// KO
+	if s.intro >= -1 && (ko[0] || ko[1]) {
+		if ko[0] && ko[1] {
+			s.finishType = FT_DKO
+			s.winTeam = -1
+		} else {
+			s.finishType = FT_KO
+			s.winTeam = int(Btoi(ko[0]))
+		}
+	}
+
+	// Update win triggers if finish type was changed
+	if ft != s.finishType {
+		for i, p := range s.chars {
+			if len(p) > 0 && ko[^i&1] {
+				for _, h := range p {
+					for _, tid := range h.targets {
+						if t := s.playerID(tid); t != nil {
+							if t.ghv.attr&int32(AT_AH) != 0 {
+								s.winTrigger[i&1] = WT_Hyper
+							} else if t.ghv.attr&int32(AT_AS) != 0 && s.winTrigger[i&1] == WT_Normal {
+								s.winTrigger[i&1] = WT_Special
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return ko[0] || ko[1] || s.curRoundTime == 0
 }
 
 func (s *System) draw(x, y, scl float32) {
@@ -2222,22 +2266,21 @@ func (s *System) drawDebugText() {
 }
 
 // Starts and runs gameplay
-// Called to start each match, on hard reset with shift+F4, and
-// at the start of any round where a new character tags in for turns mode
-func (s *System) fight() (reload bool) {
-	if s.rollback.session != nil || s.cfg.Netplay.Rollback.DesyncTestFrames > 0 {
-		return s.rollback.fight(s)
-	}
-
+// Called to start each match, on hard reset with shift+F4,
+// and at the start of any round where a new character tags in for turns mode
+func (s *System) runMatch() (reload bool) {
 	// Reset variables
-	s.gameTime, s.paused, s.accel = 0, false, 1
+	s.gameTime = 0
+	s.fightLoopEnd = false
 	s.aiInput = [len(s.aiInput)]AiInput{}
+	s.saveState = NewGameState()
 
 	// Disable debug during netplay (but not during replays)
-	if sys.netConnection != nil {
+	if !s.debugModeAllowed() {
 		s.debugDisplay = false
 		s.clsnDisplay = false
 		s.lifebarHide = false
+		s.debugAccel = 1
 	}
 
 	// Defer resetting variables on return
@@ -2263,26 +2306,17 @@ func (s *System) fight() (reload bool) {
 		defer s.netConnection.Stop()
 	}
 
-	// Struct to save char values at start of the round
-	// Rolback branch makes a similar backup in System instead of letting it be local. Maybe we'll need the same
-	var roundBackup RoundStartBackup
-
 	// Init wins counter
 	s.wincnt.init()
 
-	// Handicap levels for Random Test mode
-	// What this does is make characters weaker as they accumulate wins
-	autolvmul := math.Pow(2, 1.0/12)
-	var autolevels [MaxPlayerNo]int32
-
 	// Setup characters
-	s.SetupCharRoundStart(autolvmul, autolevels)
+	s.SetupCharRoundStart()
 
 	// Make a new backup once everything is initialized
-	roundBackup.Save()
+	s.roundBackup.Save()
 
-	// Default debug/scripts to player 1
-	s.debugWC = sys.chars[0][0]
+	// Default debug/scripts to any found char
+	s.debugWC = s.anyChar()
 	debugInput := func() {
 		select {
 		case cl := <-s.commandLine:
@@ -2293,33 +2327,30 @@ func (s *System) fight() (reload bool) {
 		}
 	}
 
-	// Anonymous function to reset values. Called at the start of each round
-	reset := func() {
-		roundBackup.Restore()
-		s.resetFrameTime()
-		s.nextRound()
-		s.roundResetFlg, s.introSkipped = false, false
-		s.reloadFlg, s.reloadStageFlg, s.reloadLifebarFlg = false, false, false
-		s.runMainThreadTask()
-		gfx.Await()
+	s.resetRound()
+
+	// Now switch to rollback if applicable
+	// TODO: More merging so we don't hijack this function at all
+	if s.rollback.session != nil || s.cfg.Netplay.Rollback.DesyncTestFrames > 0 {
+		return s.rollback.hijackRunMatch(s)
 	}
 
-	reset()
+	didTryLoadBGM := false
 
 	// Loop until end of match
-	fin := false
-	didTryLoadBGM := false
 	for !s.endMatch {
-		// Default bgm playback, used only in Quick VS or if externalized Lua implementaion is disabled
-		if s.round == 1 && (s.gameMode == "" || len(sys.cfg.Common.Lua) == 0) && sys.stage.stageTime > 0 && !didTryLoadBGM {
+		// Default BGM playback. Used only in Quick VS or if externalized Lua implementaion is disabled
+		if !didTryLoadBGM && s.round == 1 && (s.gameMode == "" || len(sys.cfg.Common.Lua) == 0) && sys.stage.stageTime > 0 {
+			didTryLoadBGM = true
 			// Need to search first
 			LoadFile(&s.stage.bgmusic, []string{s.stage.def, "", "sound/"}, func(path string) error {
 				s.bgm.Open(path, 1, int(s.stage.bgmvolume), int(s.stage.bgmloopstart), int(s.stage.bgmloopend), int(s.stage.bgmstartposition), s.stage.bgmfreqmul, -1)
-				didTryLoadBGM = true
 				return nil
 			})
 		}
-		s.step = false
+
+		s.frameStepFlag = false
+
 		for _, v := range s.shortcutScripts {
 			if v.Activate {
 				if err := s.luaLState.DoString(v.Script); err != nil {
@@ -2329,6 +2360,7 @@ func (s *System) fight() (reload bool) {
 		}
 
 		// Save/load state
+		// TODO: Confirm at which exaact point rollback does its own save/restore and match that
 		if s.saveStateFlag {
 			s.saveState.SaveState(0)
 		} else if s.loadStateFlag {
@@ -2338,85 +2370,8 @@ func (s *System) fight() (reload bool) {
 		s.loadStateFlag = false
 
 		// If next round
-		if s.roundOver() && !fin {
-			s.round++
-			for i := range s.roundsExisted {
-				s.roundsExisted[i]++
-			}
-			s.clearAllSound()
-			tbl_roundNo := s.luaLState.NewTable()
-			for _, p := range s.chars {
-				if len(p) > 0 && p[0].teamside != -1 {
-					tmp := s.luaLState.NewTable()
-					tmp.RawSetString("name", lua.LString(p[0].name))
-					tmp.RawSetString("id", lua.LNumber(p[0].id))
-					tmp.RawSetString("memberNo", lua.LNumber(p[0].memberNo))
-					tmp.RawSetString("selectNo", lua.LNumber(p[0].selectNo))
-					tmp.RawSetString("teamside", lua.LNumber(p[0].teamside))
-					tmp.RawSetString("life", lua.LNumber(p[0].life))
-					tmp.RawSetString("lifeMax", lua.LNumber(p[0].lifeMax))
-					tmp.RawSetString("winquote", lua.LNumber(p[0].winquote))
-					tmp.RawSetString("aiLevel", lua.LNumber(p[0].getAILevel()))
-					tmp.RawSetString("palno", lua.LNumber(p[0].gi().palno))
-					tmp.RawSetString("ratiolevel", lua.LNumber(p[0].ocd().ratioLevel))
-					tmp.RawSetString("win", lua.LBool(p[0].win()))
-					tmp.RawSetString("winKO", lua.LBool(p[0].winKO()))
-					tmp.RawSetString("winTime", lua.LBool(p[0].winTime()))
-					tmp.RawSetString("winPerfect", lua.LBool(p[0].winPerfect()))
-					tmp.RawSetString("winSpecial", lua.LBool(p[0].winType(WT_Special)))
-					tmp.RawSetString("winHyper", lua.LBool(p[0].winType(WT_Hyper)))
-					tmp.RawSetString("drawgame", lua.LBool(p[0].drawgame()))
-					tmp.RawSetString("ko", lua.LBool(p[0].scf(SCF_ko)))
-					tmp.RawSetString("over_ko", lua.LBool(p[0].scf(SCF_over_ko)))
-					tbl_roundNo.RawSetInt(p[0].playerNo+1, tmp)
-				}
-			}
-			s.matchData.RawSetInt(int(s.round-1), tbl_roundNo)
-			s.scoreRounds = append(s.scoreRounds, [2]float32{s.lifebar.sc[0].scorePoints, s.lifebar.sc[1].scorePoints})
-
-			if !s.matchOver() && (s.tmode[0] != TM_Turns || s.chars[0][0].win()) &&
-				(s.tmode[1] != TM_Turns || s.chars[1][0].win()) {
-				// Prepare for the next round
-				for i, p := range s.chars {
-					if len(p) > 0 {
-						if s.tmode[i&1] != TM_Turns || !p[0].win() {
-							p[0].life = p[0].lifeMax
-						} else if p[0].life <= 0 {
-							p[0].life = 1
-						}
-						p[0].redLife = p[0].life // TODO: This doesn't truly need to be hardcoded
-					}
-				}
-				roundBackup.Save()
-				reset()
-			} else {
-				// End match, or prepare for a new character in turns mode
-				for i, tm := range s.tmode {
-					if s.chars[i][0].win() || (!s.chars[i][0].lose() && tm != TM_Turns) {
-						for j := i; j < len(s.chars); j += 2 {
-							if len(s.chars[j]) > 0 {
-								if s.chars[j][0].win() {
-									if sys.autolevel {
-										s.chars[j][0].life = Max(1, int32(math.Ceil(math.Pow(autolvmul,
-											float64(autolevels[i]))*float64(s.chars[j][0].life))))
-									}
-								} else {
-									s.chars[j][0].life = Max(1, s.cgi[j].data.life)
-								}
-							}
-						}
-					}
-				}
-				// If match isn't over, presumably this is turns mode,
-				// so break to restart fight for the next character
-				if !s.matchOver() {
-					break
-				}
-
-				// Otherwise match is over
-				s.postMatchFlg = true
-				fin = true
-			}
+		if !s.runNextRound() {
+			break
 		}
 
 		s.bgPalFX.step()
@@ -2435,8 +2390,7 @@ func (s *System) fight() (reload bool) {
 
 		// F4 pressed to restart round
 		if s.roundResetFlg && !s.postMatchFlg {
-			sys.paused = false
-			reset()
+			s.resetRound()
 		}
 
 		// Shift+F4 pressed to restart match
@@ -2448,11 +2402,11 @@ func (s *System) fight() (reload bool) {
 		s.renderFrame()
 
 		// Break if finished
-		if fin && (!s.postMatchFlg || len(sys.cfg.Common.Lua) == 0) {
+		if s.fightLoopEnd && (!s.postMatchFlg || len(sys.cfg.Common.Lua) == 0) {
 			break
 		}
 
-		// Update system; break if update returns false (game ended)
+		// Update system. Break if update returns false (game ended)
 		if !s.update() {
 			break
 		}
@@ -2468,7 +2422,7 @@ func (s *System) fight() (reload bool) {
 	return false
 }
 
-func (s *System) SetupCharRoundStart(autolvmul float64, autolevels [MaxPlayerNo]int32) {
+func (s *System) SetupCharRoundStart() {
 	// Prepare next round for all players
 	for _, p := range s.chars {
 		if len(p) > 0 {
@@ -2477,28 +2431,29 @@ func (s *System) SetupCharRoundStart(autolvmul float64, autolevels [MaxPlayerNo]
 	}
 
 	// Update handicap for each character
+	// What this does is make characters weaker as they accumulate wins
 	for i, p := range s.chars {
 		if len(p) > 0 && p[0].teamside != -1 {
-			autolevels[i] = s.wincnt.getLevel(i)
+			s.autolevels[i] = s.wincnt.getLevel(i)
 		}
 	}
 
 	// Normalize autolevels so that the lowest one (or highest if all negative) is zero
 	// This ensures autolevel-based scaling is always relative, with at least one player at baseline (0)
-	minlv, maxlv := autolevels[0], autolevels[0]
-	for i, lv := range autolevels[1:] {
+	minlv, maxlv := s.autolevels[0], s.autolevels[0]
+	for i, lv := range s.autolevels[1:] {
 		if len(s.chars[i+1]) > 0 {
 			minlv = Min(minlv, lv)
 			maxlv = Max(maxlv, lv)
 		}
 	}
 	if minlv > 0 {
-		for i := range autolevels {
-			autolevels[i] -= minlv
+		for i := range s.autolevels {
+			s.autolevels[i] -= minlv
 		}
 	} else if maxlv < 0 {
-		for i := range autolevels {
-			autolevels[i] -= maxlv
+		for i := range s.autolevels {
+			s.autolevels[i] -= maxlv
 		}
 	}
 
@@ -2576,7 +2531,7 @@ func (s *System) SetupCharRoundStart(autolvmul float64, autolevels [MaxPlayerNo]
 
 			// Set lifemax
 			if sys.autolevel {
-				foo := math.Pow(autolvmul, float64(-autolevels[i]))
+				foo := math.Pow(s.autolvmul, float64(-s.autolevels[i]))
 				p[0].lifeMax = Max(1, int32(math.Floor(foo*float64(lm))))
 			} else {
 				p[0].lifeMax = Max(1, int32(math.Floor(float64(lm))))
@@ -2585,7 +2540,7 @@ func (s *System) SetupCharRoundStart(autolvmul float64, autolevels [MaxPlayerNo]
 			if p[0].roundsExisted() > 0 {
 				// If character already existed for a round, presumably because of Turns mode, just update Random Test handicap
 				if sys.autolevel {
-					foo := math.Pow(autolvmul, float64(-autolevels[i]))
+					foo := math.Pow(s.autolvmul, float64(-s.autolevels[i]))
 					p[0].life = int32(math.Ceil(foo * float64(p[0].life)))
 				}
 			} else if s.round == 1 || s.tmode[i&1] == TM_Turns {
@@ -2629,108 +2584,275 @@ func (s *System) SetupCharRoundStart(autolvmul float64, autolevels [MaxPlayerNo]
 	}
 }
 
+func (s *System) runNextRound() bool {
+	if s.roundOver() && !s.fightLoopEnd {
+		s.round++
+
+		for i := range s.roundsExisted {
+			s.roundsExisted[i]++
+		}
+
+		s.clearAllSound()
+
+		tbl_roundNo := s.luaLState.NewTable()
+		for _, p := range s.chars {
+			if len(p) > 0 && p[0].teamside != -1 {
+				tmp := s.luaLState.NewTable()
+				tmp.RawSetString("name", lua.LString(p[0].name))
+				tmp.RawSetString("id", lua.LNumber(p[0].id))
+				tmp.RawSetString("memberNo", lua.LNumber(p[0].memberNo))
+				tmp.RawSetString("selectNo", lua.LNumber(p[0].selectNo))
+				tmp.RawSetString("teamside", lua.LNumber(p[0].teamside))
+				tmp.RawSetString("life", lua.LNumber(p[0].life))
+				tmp.RawSetString("lifeMax", lua.LNumber(p[0].lifeMax))
+				tmp.RawSetString("winquote", lua.LNumber(p[0].winquote))
+				tmp.RawSetString("aiLevel", lua.LNumber(p[0].getAILevel()))
+				tmp.RawSetString("palno", lua.LNumber(p[0].gi().palno))
+				tmp.RawSetString("ratiolevel", lua.LNumber(p[0].ocd().ratioLevel))
+				tmp.RawSetString("win", lua.LBool(p[0].win()))
+				tmp.RawSetString("winKO", lua.LBool(p[0].winKO()))
+				tmp.RawSetString("winTime", lua.LBool(p[0].winTime()))
+				tmp.RawSetString("winPerfect", lua.LBool(p[0].winPerfect()))
+				tmp.RawSetString("winSpecial", lua.LBool(p[0].winType(WT_Special)))
+				tmp.RawSetString("winHyper", lua.LBool(p[0].winType(WT_Hyper)))
+				tmp.RawSetString("drawgame", lua.LBool(p[0].drawgame()))
+				tmp.RawSetString("ko", lua.LBool(p[0].scf(SCF_ko)))
+				tmp.RawSetString("over_ko", lua.LBool(p[0].scf(SCF_over_ko)))
+				tbl_roundNo.RawSetInt(p[0].playerNo+1, tmp)
+			}
+		}
+
+		s.matchData.RawSetInt(int(s.round-1), tbl_roundNo)
+		s.scoreRounds = append(s.scoreRounds, [2]float32{s.lifebar.sc[0].scorePoints, s.lifebar.sc[1].scorePoints})
+
+		if !s.matchOver() && (s.tmode[0] != TM_Turns || s.chars[0][0].win()) &&
+			(s.tmode[1] != TM_Turns || s.chars[1][0].win()) {
+			// Prepare for the next round
+			for i, p := range s.chars {
+				if len(p) > 0 {
+					if s.tmode[i&1] != TM_Turns || !p[0].win() {
+						p[0].life = p[0].lifeMax
+					} else if p[0].life <= 0 {
+						p[0].life = 1
+					}
+					p[0].redLife = p[0].life // TODO: This doesn't truly need to be hardcoded
+				}
+			}
+			s.roundBackup.Save()
+			s.resetRound()
+		} else {
+			// End match, or prepare for a new character in turns mode
+			for i, tm := range s.tmode {
+				if s.chars[i][0].win() || (!s.chars[i][0].lose() && tm != TM_Turns) {
+					for j := i; j < len(s.chars); j += 2 {
+						if len(s.chars[j]) > 0 {
+							if s.chars[j][0].win() {
+								if sys.autolevel {
+									s.chars[j][0].life = Max(1, int32(math.Ceil(math.Pow(s.autolvmul,
+										float64(s.autolevels[i]))*float64(s.chars[j][0].life))))
+								}
+							} else {
+								s.chars[j][0].life = Max(1, s.cgi[j].data.life)
+							}
+						}
+					}
+				}
+			}
+
+			// If match isn't over, presumably this is turns mode,
+			// so break to restart fight for the next character
+			if !s.matchOver() {
+				return false
+			}
+
+			// Otherwise match is over
+			s.postMatchFlg = true
+			s.fightLoopEnd = true
+		}
+	}
+
+	// Not last round
+	return true
+}
+
+func (s *System) gameLogicSpeed() int32 {
+	base := int32(60 + s.cfg.Options.GameSpeed*s.cfg.Options.GameSpeedStep)
+	spd := int32(float32(base) * s.debugAccel)
+	return Max(1, spd)
+}
+
+func (s *System) gameRenderSpeed() int32 {
+	spd := int32(s.cfg.Config.Framerate)
+	return Max(1, spd)
+}
+
+func (s *System) debugModeAllowed() bool {
+	if s.netConnection != nil || s.rollback.session != nil {
+		return false
+	}
+	return s.cfg.Debug.AllowDebugMode
+}
+
+func (s *System) IsRollback() bool {
+	if s.rollback.session != nil {
+		return s.rollback.session.inRollback
+	}
+	return false
+}
+
 type RoundStartBackup struct {
-	// Char
-	life, lifeMax               [MaxPlayerNo]int32
-	power, powerMax             [MaxPlayerNo]int32
-	guardPoints, guardPointsMax [MaxPlayerNo]int32
-	dizzyPoints, dizzyPointsMax [MaxPlayerNo]int32
-	redLife                     [MaxPlayerNo]int32
-	teamside                    [MaxPlayerNo]int
-	cnsvar                      [MaxPlayerNo]map[int32]int32
-	cnsfvar                     [MaxPlayerNo]map[int32]float32
-	mapArray                    [MaxPlayerNo]map[string]float32
-	dialogue                    [MaxPlayerNo][]string
-	remapSpr                    [MaxPlayerNo]RemapPreset
-	// Fight
+	charBackup    [MaxPlayerNo][]Char
+	cgiBackup     [MaxPlayerNo]CharGlobalInfo
+	stageBackup   Stage
 	oldWins       [2]int32
 	oldDraws      int32
 	oldTeamLeader [2]int
-	// Stage
-	stageVars Stage
 }
 
 func (bk *RoundStartBackup) Save() {
-	for i, p := range sys.chars {
-		if len(p) > 0 {
-			bk.life[i] = p[0].life
-			bk.lifeMax[i] = p[0].lifeMax
-			bk.power[i] = p[0].power
-			bk.powerMax[i] = p[0].powerMax
-			bk.guardPoints[i] = p[0].guardPoints
-			bk.guardPointsMax[i] = p[0].guardPointsMax
-			bk.dizzyPoints[i] = p[0].dizzyPoints
-			bk.dizzyPointsMax[i] = p[0].dizzyPointsMax
-			bk.redLife[i] = p[0].redLife
-			bk.teamside[i] = p[0].teamside
+	// Save characters
+	// We save helpers as well because of "preserve" parameter
+	for i, chars := range sys.chars {
+		if len(chars) == 0 {
+			continue
+		}
 
-			bk.cnsvar[i] = make(map[int32]int32)
-			for k, v := range p[0].cnsvar {
-				bk.cnsvar[i][k] = v
+		// Allocate slice for backup
+		bk.charBackup[i] = make([]Char, 0, len(chars))
+
+		for _, c := range chars {
+			// Shallow copy whole struct
+			bkup := *c
+
+			// Deep copy maps
+			bkup.cnsvar = make(map[int32]int32, len(c.cnsvar))
+			for k, v := range c.cnsvar {
+				bkup.cnsvar[k] = v
 			}
-			bk.cnsfvar[i] = make(map[int32]float32)
-			for k, v := range p[0].cnsfvar {
-				bk.cnsfvar[i][k] = v
+			bkup.cnsfvar = make(map[int32]float32, len(c.cnsfvar))
+			for k, v := range c.cnsfvar {
+				bkup.cnsfvar[k] = v
 			}
-			bk.mapArray[i] = make(map[string]float32)
-			for k, v := range p[0].mapArray {
-				bk.mapArray[i][k] = v
+			bkup.mapArray = make(map[string]float32, len(c.mapArray))
+			for k, v := range c.mapArray {
+				bkup.mapArray[k] = v
 			}
-			bk.dialogue[i] = append([]string{}, p[0].dialogue...)
-			bk.remapSpr[i] = make(RemapPreset)
-			for k, v := range p[0].remapSpr {
-				bk.remapSpr[i][k] = v
+
+			// Deep copy dialogue slice
+			bkup.dialogue = append([]string{}, c.dialogue...)
+
+			// Deep copy remap preset
+			bkup.remapSpr = make(RemapPreset)
+			for k, v := range c.remapSpr {
+				bkup.remapSpr[k] = v
 			}
+
+			bk.charBackup[i] = append(bk.charBackup[i], bkup)
 		}
 	}
-	bk.oldWins = sys.wins
-	bk.oldDraws = sys.draws
+
+	// CharGlobalInfo backup
+	for i := range sys.cgi {
+		bk.cgiBackup[i] = sys.cgi[i]
+	}
+
+	// Stage backup
+	bk.stageBackup = *sys.stage
+
+	// Deep copy stage maps/slices
+	bk.stageBackup.constants = make(map[string]float32, len(sys.stage.constants))
+	for k, v := range sys.stage.constants {
+		bk.stageBackup.constants[k] = v
+	}
+	bk.stageBackup.attachedchardef = append([]string{}, sys.stage.attachedchardef...)
+
+	// Match info
+	bk.oldWins, bk.oldDraws = sys.wins, sys.draws
 	bk.oldTeamLeader = sys.teamLeader
-	bk.stageVars.copyStageVars(sys.stage)
 }
 
 func (bk *RoundStartBackup) Restore() {
-	sys.wins = bk.oldWins
-	sys.draws = bk.oldDraws
-	sys.teamLeader = bk.oldTeamLeader
+	// Restore characters
+	for i, chars := range sys.chars {
+		if len(chars) == 0 {
+			continue
+		}
 
-	for i, p := range sys.chars {
-		if len(p) > 0 {
-			p[0].life = bk.life[i]
-			p[0].lifeMax = bk.lifeMax[i]
-			p[0].power = bk.power[i]
-			p[0].powerMax = bk.powerMax[i]
-			p[0].guardPoints = bk.guardPoints[i]
-			p[0].guardPointsMax = bk.guardPointsMax[i]
-			p[0].dizzyPoints = bk.dizzyPoints[i]
-			p[0].dizzyPointsMax = bk.dizzyPointsMax[i]
-			p[0].redLife = bk.redLife[i]
-			p[0].teamside = bk.teamside[i]
+		for j, c := range chars {
+			// Find the backup corresponding to this index
+			var bkup *Char
+			for k := range bk.charBackup[i] {
+				if bk.charBackup[i][k].helperIndex == c.helperIndex {
+					bkup = &bk.charBackup[i][k]
+					break
+				}
+			}
 
-			p[0].cnsvar = make(map[int32]int32)
-			for k, v := range bk.cnsvar[i] {
-				p[0].cnsvar[k] = v
+			// Safeguard: if no backup exists for this slot and it’s not the root, destroy the helper
+			if bkup == nil {
+				if j != 0 && c.helperIndex != 0 {
+					c.destroy()
+				}
+				continue
 			}
-			p[0].cnsfvar = make(map[int32]float32)
-			for k, v := range bk.cnsfvar[i] {
-				p[0].cnsfvar[k] = v
+
+			// Save live sounds before overwriting
+			liveSounds := c.soundChannels
+
+			// Restore shallow copy from backup
+			*c = *bkup
+
+			// Restore live sounds
+			c.soundChannels = liveSounds
+
+			// Remake the CNS variable maps
+			// Then restore only var and fvar (losing sysvar and sysfvar)
+			c.initCnsVar()
+			for k, v := range bkup.cnsvar {
+				c.cnsvar[k] = v
 			}
-			p[0].cnssysvar = make(map[int32]int32)
-			p[0].cnssysfvar = make(map[int32]float32)
-			p[0].mapArray = make(map[string]float32)
-			for k, v := range bk.mapArray[i] {
-				p[0].mapArray[k] = v
+			for k, v := range bkup.cnsfvar {
+				c.cnsfvar[k] = v
 			}
-			copy(p[0].dialogue[:], bk.dialogue[i])
-			p[0].remapSpr = make(RemapPreset)
-			for k, v := range bk.remapSpr[i] {
-				p[0].remapSpr[k] = v
+
+			// Restore maps
+			c.mapArray = make(map[string]float32, len(bkup.mapArray))
+			for k, v := range bkup.mapArray {
+				c.mapArray[k] = v
+			}
+
+			c.dialogue = append([]string{}, bkup.dialogue...)
+
+			c.remapSpr = make(RemapPreset)
+			for k, v := range bkup.remapSpr {
+				c.remapSpr[k] = v
 			}
 		}
 	}
 
+	// Restore CharGlobalInfo
+	for i := range sys.cgi {
+		sys.cgi[i] = bk.cgiBackup[i]
+	}
+
+	// Restore stage
+	// We preserve the stage time as a cosmetic thing just to match Mugen. Might as well restore it to where it was when we use F4
+	// NOTE: If reloading stage time we'd need backups of the BGCtrls as well
 	// NOTE: This save and restore of stage variables makes ModifyStageVar not persist. Maybe that should not be the case?
-	sys.stage.copyStageVars(&bk.stageVars)
+	stageTime := sys.stage.stageTime
+	*sys.stage = bk.stageBackup
+	sys.stage.stageTime = stageTime
+
+	// Restore stage maps/slices
+	sys.stage.constants = make(map[string]float32, len(bk.stageBackup.constants))
+	for k, v := range bk.stageBackup.constants {
+		sys.stage.constants[k] = v
+	}
+	sys.stage.attachedchardef = append([]string{}, bk.stageBackup.attachedchardef...)
+
+	// Restore match info
+	sys.wins, sys.draws = bk.oldWins, bk.oldDraws
+	sys.teamLeader = bk.oldTeamLeader
 }
 
 // Code responsible for updating the 'autolevel.save' file.

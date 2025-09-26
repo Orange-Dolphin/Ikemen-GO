@@ -1,5 +1,3 @@
-//go:build !kinc
-
 // This is almost identical to render_gl.go except it uses a VAO
 // for GL 3.2 which is the minimum version that runs on modern
 // macOS (Intel and ARM). Work adapted from assemblaj/fantasma
@@ -292,6 +290,10 @@ func (t *Texture_GL32) IsValid() bool {
 
 func (t *Texture_GL32) GetWidth() int32 {
 	return t.width
+}
+
+func (t *Texture_GL32) GetHeight() int32 {
+	return t.height
 }
 
 func (t *Texture_GL32) MapInternalFormat(i int32) uint32 {

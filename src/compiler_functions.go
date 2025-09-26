@@ -162,6 +162,10 @@ func (c *Compiler) assertSpecial(is IniSection, sc *StateControllerBase, _ int8)
 				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_autoguard)))
 			case "drawunder":
 				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_drawunder)))
+			case "noaibuttonjam":
+				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_noaibuttonjam)))
+			case "noaicheat":
+				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_noaicheat)))
 			case "noailevel":
 				sc.add(assertSpecial_flag, sc.i64ToExp(int64(ASF_noailevel)))
 			case "noairjump":
@@ -595,6 +599,8 @@ func (c *Compiler) helper(is IniSection, sc *StateControllerBase, _ int8) (State
 			case "player":
 				ht = 1
 			case "projectile":
+				ht = 2
+			case "proj":
 				ht = 2
 			default:
 				return Error("Invalid helpertype: " + data)
@@ -1132,25 +1138,19 @@ func (c *Compiler) gameMakeAnim(is IniSection, sc *StateControllerBase, _ int8) 
 			gameMakeAnim_under, VT_Bool, 1, false); err != nil {
 			return err
 		}
-		b := false
+
+		// Previously, Ikemen accepted either "value" or "anim" here. Turns out Mugen only accepts "value"
 		anim := func(data string) error {
-			b = true
 			prefix := c.getDataPrefix(&data, true)
 			return c.scAdd(sc, gameMakeAnim_anim, data, VT_Int, 1,
 				sc.beToExp(BytecodeExp(prefix))...)
 		}
-		if err := c.stateParam(is, "anim", false, func(data string) error {
+		if err := c.stateParam(is, "value", false, func(data string) error {
 			return anim(data)
 		}); err != nil {
 			return err
 		}
-		if !b {
-			if err := c.stateParam(is, "value", false, func(data string) error {
-				return anim(data)
-			}); err != nil {
-				return err
-			}
-		}
+
 		return nil
 	})
 	return *ret, err
@@ -1631,73 +1631,19 @@ func (c *Compiler) hitDefSub(is IniSection, sc *StateControllerBase) error {
 	}); err != nil {
 		return err
 	}
-	htyp := func(id byte, data string) error {
-		if len(data) == 0 {
-			return Error("hit type not specified")
-		}
-		var ht HitType
-		switch data[0] {
-		case 'H', 'h':
-			ht = HT_High
-		case 'L', 'l':
-			ht = HT_Low
-		case 'T', 't':
-			ht = HT_Trip
-		case 'N', 'n':
-			ht = HT_None
-		default:
-			return Error("Invalid hit type: " + data)
-		}
-		sc.add(id, sc.iToExp(int32(ht)))
-		return nil
-	}
-	if err := c.stateParam(is, "ground.type", false, func(data string) error {
-		return htyp(hitDef_ground_type, data)
-	}); err != nil {
+	if err := c.paramHittype(is, sc, "ground.type", hitDef_ground_type); err != nil {
 		return err
 	}
-	if err := c.stateParam(is, "air.type", false, func(data string) error {
-		return htyp(hitDef_air_type, data)
-	}); err != nil {
+	if err := c.paramHittype(is, sc, "air.type", hitDef_air_type); err != nil {
 		return err
 	}
-	reac := func(id byte, data string) error {
-		if len(data) == 0 {
-			return Error("animtype not specified")
-		}
-		var ra Reaction
-		switch data[0] {
-		case 'L', 'l':
-			ra = RA_Light
-		case 'M', 'm':
-			ra = RA_Medium
-		case 'H', 'h':
-			ra = RA_Hard
-		case 'B', 'b':
-			ra = RA_Back
-		case 'U', 'u':
-			ra = RA_Up
-		case 'D', 'd':
-			ra = RA_Diagup
-		default:
-			return Error("Invalid animtype: " + data)
-		}
-		sc.add(id, sc.iToExp(int32(ra)))
-		return nil
-	}
-	if err := c.stateParam(is, "animtype", false, func(data string) error {
-		return reac(hitDef_animtype, data)
-	}); err != nil {
+	if err := c.paramAnimtype(is, sc, "animtype", hitDef_animtype); err != nil {
 		return err
 	}
-	if err := c.stateParam(is, "air.animtype", false, func(data string) error {
-		return reac(hitDef_air_animtype, data)
-	}); err != nil {
+	if err := c.paramAnimtype(is, sc, "air.animtype", hitDef_air_animtype); err != nil {
 		return err
 	}
-	if err := c.stateParam(is, "fall.animtype", false, func(data string) error {
-		return reac(hitDef_fall_animtype, data)
-	}); err != nil {
+	if err := c.paramAnimtype(is, sc, "fall.animtype", hitDef_fall_animtype); err != nil {
 		return err
 	}
 	if err := c.stateParam(is, "affectteam", false, func(data string) error {
@@ -3434,7 +3380,7 @@ func (c *Compiler) superPause(is IniSection, sc *StateControllerBase, _ int8) (S
 			return err
 		}
 		if err := c.paramValue(is, sc, "pos",
-			superPause_pos, VT_Float, 2, false); err != nil {
+			superPause_pos, VT_Float, 3, false); err != nil {
 			return err
 		}
 		if err := c.paramValue(is, sc, "p2defmul",
@@ -4554,16 +4500,25 @@ func (c *Compiler) lifebarAction(is IniSection, sc *StateControllerBase, _ int8)
 			lifebarAction_time, VT_Int, 1, false); err != nil {
 			return err
 		}
-		if err := c.paramValue(is, sc, "anim",
-			lifebarAction_anim, VT_Int, 1, false); err != nil {
+		if err := c.stateParam(is, "anim", false, func(data string) error {
+			prefix := c.getDataPrefix(&data, false)
+			return c.scAdd(sc, lifebarAction_anim, data, VT_Int, 1,
+				sc.beToExp(BytecodeExp(prefix))...)
+		}); err != nil {
 			return err
 		}
-		if err := c.paramValue(is, sc, "spr",
-			lifebarAction_spr, VT_Int, 2, false); err != nil {
+		if err := c.stateParam(is, "spr", false, func(data string) error {
+			prefix := c.getDataPrefix(&data, false)
+			return c.scAdd(sc, lifebarAction_spr, data, VT_Int, 2,
+				sc.beToExp(BytecodeExp(prefix))...)
+		}); err != nil {
 			return err
 		}
-		if err := c.paramValue(is, sc, "snd",
-			lifebarAction_snd, VT_Int, 2, false); err != nil {
+		if err := c.stateParam(is, "snd", false, func(data string) error {
+			prefix := c.getDataPrefix(&data, false)
+			return c.scAdd(sc, lifebarAction_snd, data, VT_Int, 2,
+				sc.beToExp(BytecodeExp(prefix))...)
+		}); err != nil {
 			return err
 		}
 		if err := c.stateParam(is, "text", false, func(data string) error {

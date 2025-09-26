@@ -1,6 +1,7 @@
 package main
 
 import (
+	//"errors"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -182,7 +183,7 @@ func (b *BufferSeeker) Stream(out [][2]float64) (n int, ok bool) {
 }
 
 func (b *BufferSeeker) Seek(p int) error {
-	// Clamp p so we don’t panic on bogus values
+	// Clamp p so we don't panic on bogus values
 	if p < 0 {
 		p = 0
 	} else if p > b.buf.Len() {
@@ -563,6 +564,49 @@ func (bgm *Bgm) SetFreqMul(freqmul float32) {
 	}
 }
 
+// OpenFromStreamer wires an arbitrary Beep streamer (e.g. Reisen-backed audio)
+// into the existing BGM path so the video BGM replaces/uses the same channel.
+func (bgm *Bgm) OpenFromStreamer(stream beep.Streamer, srcSampleRate beep.SampleRate, bgmVolume int) {
+	// Right away, cancel any running goroutines.
+	bgm.mu.Lock()
+	if bgm.cancel != nil {
+		bgm.cancel()
+	}
+	var ctx context.Context
+	ctx, bgm.cancel = context.WithCancel(context.Background())
+	_ = ctx // reserved for future use (mirrors Open)
+	bgm.mu.Unlock()
+
+	bgm.filename = "<video-stream>"
+	bgm.loop = 0
+	bgm.bgmVolume = bgmVolume
+	bgm.freqmul = 1
+
+	// Starve the current music streamer
+	if bgm.ctrl != nil {
+		speaker.Lock()
+		bgm.ctrl.Streamer = nil
+		speaker.Unlock()
+	}
+	// Honor CLI flags just like normal Open()
+	if _, ok := sys.cmdFlags["-nomusic"]; ok {
+		return
+	}
+	if _, ok := sys.cmdFlags["-nosound"]; ok {
+		return
+	}
+
+	// Build the standard BGM chain: Volume -> Resample -> Ctrl -> Mixer
+	bgm.sampleRate = srcSampleRate
+	bgm.volctrl = &effects.Volume{Streamer: stream, Base: 2, Volume: 0, Silent: true}
+	dstFreq := beep.SampleRate(float32(sys.cfg.Sound.SampleRate) / bgm.freqmul)
+	resampler := beep.Resample(audioResampleQuality, bgm.sampleRate, dstFreq, bgm.volctrl)
+	bgm.ctrl = &beep.Ctrl{Streamer: resampler}
+	bgm.volRestore = 0
+	bgm.UpdateVolume()
+	speaker.Play(bgm.ctrl)
+}
+
 func (bgm *Bgm) SetLoopPoints(bgmLoopStart int, bgmLoopEnd int) {
 	// Set both at once, why not
 	if sl, ok := bgm.volctrl.Streamer.(*StreamLooper); ok {
@@ -587,12 +631,16 @@ func (bgm *Bgm) SetLoopPoints(bgmLoopStart int, bgmLoopEnd int) {
 }
 
 func (bgm *Bgm) Seek(positionSample int) {
+	// For stream-only sources (e.g., video audio) we don't support seeking; ignore safely.
+	if bgm.streamer == nil {
+		return
+	}
 	speaker.Lock()
 	// Reset to 0 if out of range
 	if positionSample < 0 || positionSample > bgm.streamer.Len() {
 		positionSample = 0
 	}
-	bgm.streamer.Seek(positionSample)
+	_ = bgm.streamer.Seek(positionSample)
 	speaker.Unlock()
 }
 
@@ -614,23 +662,44 @@ func readSound(f io.ReadSeekCloser, size uint32) (*Sound, error) {
 		return nil, err
 	}
 	// Decode the sound at least once, so that we know the format is OK
-	s, fmt, err := wav.Decode(bytes.NewReader(wavData))
+	s, wavfmt, err := wav.Decode(bytes.NewReader(wavData))
 	if err != nil {
 		return nil, err
 	}
 	// Check if the file can be fully played
-	var samples [512][2]float64
-	for {
-		sn, _ := s.Stream(samples[:])
-		if sn == 0 {
-			// If sound wasn't able to be fully played, we disable it to avoid engine freezing
-			if s.Position() < s.Len() {
-				return nil, nil
+	// Run a decode test and catch any panics.
+	var recovered interface{}
+	func() {
+		defer func() {
+			// Catch any panic that occurs inside this anonymous function.
+			if r := recover(); r != nil {
+				recovered = r
 			}
-			break
+		}()
+
+		// Try streaming until the end of the file.
+		var samples [512][2]float64
+		for {
+			n, ok := s.Stream(samples[:])
+			if n == 0 || !ok {
+				// When the end is reached normally.
+				if s.Err() == nil && s.Position() >= s.Len() {
+					break
+				}
+				// Other errors.
+				if s.Err() != nil {
+					// Errors not caught by recover() are stored here.
+					recovered = s.Err()
+				}
+				break
+			}
 		}
+	}()
+	// If a panic was caught.
+	if recovered != nil {
+		return nil, nil // If sound wasn't able to be fully played, we disable it to avoid engine freezing
 	}
-	return &Sound{wavData, fmt, s.Len()}, nil
+	return &Sound{wavData, wavfmt, s.Len()}, nil
 }
 
 func (s *Sound) GetStreamer() beep.StreamSeeker {

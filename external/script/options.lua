@@ -138,6 +138,7 @@ options.t_itemname = {
 			modifyGameOption('Options.Time', 99)
 			modifyGameOption('Options.GameSpeed', 0)
 			modifyGameOption('Options.Match.Wins', 2)
+			--modifyGameOption('Options.GameSpeedStep', 5)
 			modifyGameOption('Options.Match.MaxDrawGames', -2) -- -2: match.maxdrawgames
 			modifyGameOption('Options.Credits', 10)
 			modifyGameOption('Options.QuickContinue', false)
@@ -920,7 +921,7 @@ options.t_itemname = {
 			else
 				modifyGameOption('Video.WindowScaleMode', true)
 			end
-			t.items[item].vardisplay = options.f_boolDisplay(gameOption('Video.WindowScaleMode'), motif.option_info.menu_valuename_enabled, motif.option_info.menu_valuename_disabled)
+			t.items[item].vardisplay = options.t_vardisplay['windowscalemode']()
 			options.modified = true
 		end
 		return true
@@ -1291,6 +1292,7 @@ function options.f_createMenu(tbl, bool_main)
 		local moveTxt = 0
 		local item = 1
 		local t = tbl.items
+		main.f_menuSnap('option_info')
 		if bool_main then
 			main.f_bgReset(motif.optionbgdef.bg)
 			main.f_fadeReset('fadein', motif.option_info)
@@ -1337,6 +1339,7 @@ function options.f_createMenu(tbl, bool_main)
 				if tbl.submenu[f].loop ~= nil then
 					sndPlay(motif.files.snd_data, motif.option_info.cursor_done_snd[1], motif.option_info.cursor_done_snd[2])
 					tbl.submenu[f].loop()
+					main.f_menuSnap('option_info')
 				elseif not options.t_itemname[f](tbl, item, cursorPosY, moveTxt) then
 					break
 				end
@@ -1550,7 +1553,7 @@ options.t_vardisplay = {
 		return options.f_definedDisplay(gameOption('Video.VSync'), {[1] = motif.option_info.menu_valuename_enabled}, motif.option_info.menu_valuename_disabled)
 	end,
 	['windowscalemode'] = function()
-		return options.f_boolDisplay(gameOption('Video.WindowScaleMode'), motif.option_info.menu_valuename_enabled, motif.option_info.menu_valuename_disabled)
+		return options.f_boolDisplay(gameOption('Video.WindowScaleMode'), "Bilinear", "Nearest")
 	end,
 }
 

@@ -1,5 +1,3 @@
-//go:build !kinc
-
 // IF YOU MAKE CHANGES TO THIS FILE, YOU MUST ALSO MAKE
 // EQUIVALENT CHANGES TO render_gl_gl32.go
 
@@ -293,6 +291,10 @@ func (t *Texture_GL21) IsValid() bool {
 
 func (t *Texture_GL21) GetWidth() int32 {
 	return t.width
+}
+
+func (t *Texture_GL21) GetHeight() int32 {
+	return t.height
 }
 
 func (t *Texture_GL21) MapInternalFormat(i int32) uint32 {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"os"
@@ -10,9 +11,9 @@ import (
 	"time"
 )
 
-var ModAlt = NewModifierKey(false, true, false)
-var ModCtrlAlt = NewModifierKey(true, true, false)
-var ModCtrlAltShift = NewModifierKey(true, true, true)
+var ModAlt ModifierKey
+var ModCtrlAlt ModifierKey
+var ModCtrlAltShift ModifierKey
 
 // CommandList > Command > CommandStep > CommandStepKey
 type CommandStepKey struct {
@@ -92,6 +93,11 @@ type ShortcutKey struct {
 }
 
 func NewShortcutKey(key Key, ctrl, alt, shift bool) *ShortcutKey {
+	if ModAlt == 0 {
+		ModAlt = NewModifierKey(false, true, false)
+		ModCtrlAlt = NewModifierKey(true, true, false)
+		ModCtrlAltShift = NewModifierKey(true, true, true)
+	}
 	sk := &ShortcutKey{}
 	sk.Key = key
 	sk.Mod = NewModifierKey(ctrl, alt, shift)
@@ -491,44 +497,6 @@ func (ibit *InputBits) KeysToBits(buttons [14]bool) {
 		Btoi(buttons[13])<<13)
 }
 
-func (ibit InputBits) RollbackBitsToKeys(cb *InputBuffer, facing int32) {
-	var U, D, L, R, B, F, a, b, c, x, y, z, s, d, w, m bool
-	// Convert bits to logical symbols
-	U = ibit&IB_PU != 0
-	D = ibit&IB_PD != 0
-	L = ibit&IB_PL != 0
-	R = ibit&IB_PR != 0
-	if facing < 0 {
-		B, F = ibit&IB_PR != 0, ibit&IB_PL != 0
-	} else {
-		B, F = ibit&IB_PL != 0, ibit&IB_PR != 0
-	}
-	a = ibit&IB_A != 0
-	b = ibit&IB_B != 0
-	c = ibit&IB_C != 0
-	x = ibit&IB_X != 0
-	y = ibit&IB_Y != 0
-	z = ibit&IB_Z != 0
-	s = ibit&IB_S != 0
-	d = ibit&IB_D != 0
-	w = ibit&IB_W != 0
-	m = ibit&IB_M != 0
-	// Absolute priority SOCD resolution is enforced during netplay
-	// TODO: Port the other options as well
-	if U && D {
-		D = false
-	}
-	if B && F {
-		B = false
-		if facing < 0 {
-			R = false
-		} else {
-			L = false
-		}
-	}
-	cb.updateInputTime(U, D, L, R, B, F, a, b, c, x, y, z, s, d, w, m)
-}
-
 // Convert received input bits back into keys
 func (ibit InputBits) BitsToKeys() [14]bool {
 	var U, D, L, R, a, b, c, x, y, z, s, d, w, m bool
@@ -844,11 +812,11 @@ func (ir *InputReader) ButtonAssistCheck(curr [9]bool) [9]bool {
 
 // This used to hold button state variables (e.g. U), but that didn't have any info we can't derive from the *b (e.g. Ub) vars
 type InputBuffer struct {
+	InputReader                            *InputReader
 	Bb, Db, Fb, Ub, Lb, Rb, Nb             int32 // Current state of buffer
 	ab, bb, cb, xb, yb, zb, sb, db, wb, mb int32
 	Bp, Dp, Fp, Up, Lp, Rp, Np             int32 // Previous state of buffer
 	ap, bp, cp, xp, yp, zp, sp, dp, wp, mp int32
-	InputReader                            *InputReader
 }
 
 func NewInputBuffer() *InputBuffer {
@@ -931,7 +899,8 @@ func (ib *InputBuffer) updateInputTime(U, D, L, R, B, F, a, b, c, x, y, z, s, d,
 	update(m, &ib.mb)
 }
 
-// Check the buffer state of each key
+// Get the state of any symbol/key combination
+// An attempt was made to cache these states in a map, but computing them every time is already faster than looking up a map
 func (__ *InputBuffer) State(ck CommandStepKey) int32 {
 
 	// Hold simple directions
@@ -1947,12 +1916,89 @@ func (ib *InputBuffer) StateCharge(ck CommandStepKey) int32 {
 	return 0
 }
 
+/*
 // Time since last change of any key. Used for ">" type commands
 func (__ *InputBuffer) LastChangeTime() int32 {
 	dir := Min(Abs(__.Ub), Abs(__.Db), Abs(__.Bb), Abs(__.Fb), Abs(__.Lb), Abs(__.Rb))
 	btn := Min(Abs(__.ab), Abs(__.bb), Abs(__.cb), Abs(__.xb), Abs(__.yb), Abs(__.zb), Abs(__.sb), Abs(__.db), Abs(__.wb), Abs(__.mb))
 
 	return Min(dir, btn)
+}
+*/
+
+// Check if any recently changed key invalidates a ">" step
+// TODO: Make this work with the new $ replacement symbol
+func (c *Command) GreaterCheckFail(i int, ibuf *InputBuffer) bool {
+	// Determine which directional groups to check
+	// Otherwise B/F presses can invalidate L/R and vice-versa
+	var useLR bool
+	for _, sk := range c.steps[i].keys {
+		switch sk.key {
+		case CK_L, CK_R, CK_UL, CK_UR, CK_DL, CK_DR:
+			useLR = true
+		}
+	}
+
+	// Check each recent key to see if they belong in the step
+	checkKey := func(k CommandKey) bool {
+		// Press
+		if ibuf.State(CommandStepKey{key: k, tilde: false}) == 1 {
+			allowed := false
+			for _, sk := range c.steps[i].keys {
+				if sk.key == k && !sk.tilde {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return true
+			}
+			return false
+		}
+		// Release
+		if ibuf.State(CommandStepKey{key: k, tilde: true}) == 1 {
+			allowed := false
+			for _, sk := range c.steps[i].keys {
+				if sk.key == k && sk.tilde {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Directions
+	for _, k := range [2]CommandKey{CK_U, CK_D} {
+		if checkKey(k) {
+			return true
+		}
+	}
+	if useLR {
+		for _, k := range [6]CommandKey{CK_L, CK_R, CK_UL, CK_UR, CK_DL, CK_DR} {
+			if checkKey(k) {
+				return true
+			}
+		}
+	} else {
+		for _, k := range [6]CommandKey{CK_B, CK_F, CK_UF, CK_UB, CK_DF, CK_DB} {
+			if checkKey(k) {
+				return true
+			}
+		}
+	}
+
+	// Buttons
+	for _, k := range [10]CommandKey{CK_a, CK_b, CK_c, CK_x, CK_y, CK_z, CK_s, CK_d, CK_w, CK_m} {
+		if checkKey(k) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // NetBuffer holds the inputs that are sent between players
@@ -2062,32 +2108,82 @@ func (nc *NetConnection) GetHostGuestRemap() (host, guest int) {
 }
 
 func (nc *NetConnection) Accept(port string) error {
-	if ln, err := net.Listen("tcp", ":"+port); err != nil {
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
 		return err
-	} else {
-		nc.ln = ln.(*net.TCPListener)
-		nc.host = true
-		nc.locIn, nc.remIn = nc.GetHostGuestRemap()
-		go func() {
-			ln := nc.ln
-			if conn, err := ln.AcceptTCP(); err == nil {
-				nc.conn = conn
-				if sys.cfg.Netplay.RollbackNetcode {
-					sys.rollback.session.remoteIp = conn.RemoteAddr().(*net.TCPAddr).IP.String()
-				}
-			}
-			ln.Close()
-		}()
 	}
+
+	tcpLn, ok := ln.(*net.TCPListener)
+	if !ok {
+		ln.Close()
+		return fmt.Errorf("failed to cast net.Listener to *net.TCPListener")
+	}
+
+	nc.ln = tcpLn
+	nc.host = true
+	nc.conn = nil // Make sure this is a new connection
+	nc.locIn, nc.remIn = nc.GetHostGuestRemap()
+
+	go func() {
+		defer nc.ln.Close()
+
+		tempConn, err := nc.ln.AcceptTCP()
+		if err != nil {
+			return
+		}
+
+		if sys.cfg.Netplay.RollbackNetcode {
+			sys.rollback.session.remoteIp = tempConn.RemoteAddr().(*net.TCPAddr).IP.String()
+		}
+
+		//Send handshake
+		tempConn.Write([]byte("IKEMENGO"))
+
+		// Wait for client acknowledgment
+		ack := make([]byte, 8) // Length of our "password"
+		_, err = io.ReadFull(tempConn, ack)
+		if err != nil || string(ack) != "IKEMENGO" {
+			tempConn.Close()
+			return
+		}
+
+		// Handshake complete. Make temp connection permanent
+		nc.conn = tempConn
+	}()
+
 	return nil
 }
 
 func (nc *NetConnection) Connect(server, port string) {
 	nc.host = false
+	nc.conn = nil // Make sure this is a new connection
 	nc.remIn, nc.locIn = nc.GetHostGuestRemap()
+
 	go func() {
-		if conn, err := net.Dial("tcp", server+":"+port); err == nil {
-			nc.conn = conn.(*net.TCPConn)
+		for {
+			tempConn, err := net.Dial("tcp", server+":"+port)
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			tcpConn := tempConn.(*net.TCPConn)
+
+			// Wait for host handshake
+			buf := make([]byte, 8)
+			_, err = io.ReadFull(tcpConn, buf)
+			if err != nil || string(buf) != "IKEMENGO" {
+				tcpConn.Close()
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// Send acknowledgment
+			tcpConn.Write([]byte("IKEMENGO"))
+
+			// Handshake complete. Make temp connection permanent
+			nc.conn = tcpConn
+			return
 		}
 	}()
 }
@@ -2391,7 +2487,10 @@ func (ai *AiInput) Update(level float32) {
 		ai.dt, ai.wt, ai.mt = 0, 0, 0
 		return
 	}
+
 	var chance, time int32 = 15, 60
+
+	// Helper to jam a button for a given time
 	jam := func(t *int32) bool {
 		(*t)--
 		if *t <= 0 {
@@ -2404,10 +2503,12 @@ func (ai *AiInput) Update(level float32) {
 		}
 		return false
 	}
-	// Pick a random direction to press
+
+	// Pick a random single direction
 	if jam(&ai.dirt) {
 		ai.dir = Rand(0, 7)
 	}
+
 	chance, time = int32((-11.25*level+165)*7), 30
 	jam(&ai.at)
 	jam(&ai.bt)
@@ -2993,27 +3094,10 @@ func (c *Command) Step(ibuf *InputBuffer, ai, isHelper, hpbuf, pausebuf bool, ex
 			}
 		}
 
-		// ">" check
-		// This approach has a quirk in that foreign inputs are accepted if they're entered the same frame that the intended input matched
-		// Should be harmless because at least that's very hard for a human to perform
-		// Out of the methods tried, this one has the best results for the least work
-		if !inputMatched && c.steps[i].greater &&
-			i > 0 && len(c.steps) >= 2 && c.completed[i-1] && !c.completed[i] {
-
-			// Check if the last change in inputs can be found in the previous step
-			hasLast := false
-			for _, key := range c.steps[i-1].keys {
-				if ibuf.State(key) == ibuf.LastChangeTime() {
-					hasLast = true
-					break
-				}
-			}
-
-			// Ikemen used to do a c.Clear(false) here
-			// But Mugen seems to do something like this instead. Or it's more like a ">" failure just prevents "inputMatched"
-			// This makes mashing some commands like "D, D, D" easier to do
-			// Clear previous step only
-			if !hasLast {
+		// Check ">" steps
+		if c.steps[i].greater && i > 0 && len(c.steps) >= 2 && c.completed[i-1] && !c.completed[i] {
+			if c.GreaterCheckFail(i, ibuf) {
+				inputMatched = false
 				c.completed[i-1] = false
 				c.stepTimers[i-1] = 0
 			}
@@ -3090,9 +3174,30 @@ func NewCommandList(cb *InputBuffer) *CommandList {
 }
 
 // Read inputs from the correct source (local, AI, net or replay) in order to update the input buffer
-func (cl *CommandList) InputUpdate(controller int, flipbf bool, aiLevel float32, ibit InputBits, shifting [][2]int, script bool) bool {
+func (cl *CommandList) InputUpdate(owner *Char, controller int, aiLevel float32, script bool) bool {
 	if cl.Buffer == nil {
 		return false
+	}
+
+	var aijam, flipbf bool
+	var ibit InputBits
+	var shifting [][2]int
+
+	// Get char parameters
+	if owner != nil {
+		//controller := owner.controller // We need this one as an argument because of currect script architecture
+		flipbf = owner.fbFlip
+		aijam = !owner.asf(ASF_noaibuttonjam)
+		ibit = owner.inputFlag
+		shifting = owner.inputShift
+	}
+
+	// With scripts we bypass most flags
+	if script {
+		flipbf = false
+		aijam = false
+		ibit = 0
+		shifting = nil
 	}
 
 	// This check is currently needed to prevent screenpack inputs from rapid firing
@@ -3109,11 +3214,13 @@ func (cl *CommandList) InputUpdate(controller int, flipbf bool, aiLevel float32,
 	var buttons [14]bool
 
 	if isAI {
-		// Since AI inputs use random numbers, we handle them locally to avoid desync
-		idx := ^controller
-		if idx >= 0 && idx < len(sys.aiInput) {
-			sys.aiInput[idx].Update(aiLevel)
-			buttons = sys.aiInput[idx].Buttons()
+		if aijam {
+			// Since AI inputs use random numbers, we handle them locally to avoid desync
+			idx := ^controller
+			if idx >= 0 && idx < len(sys.aiInput) {
+				sys.aiInput[idx].Update(aiLevel)
+				buttons = sys.aiInput[idx].Buttons()
+			}
 		}
 	} else if sys.replayFile != nil {
 		buttons = sys.replayFile.readReplayFile(controller)
@@ -3363,8 +3470,8 @@ func withoutTildeKey(k CommandKey) CommandKey {
 
 /*
 func autoGenerateExtendedCommand(originalCmd *Command) *Command {
-	// 対象コマンドか判定
-	// タメコマンド(/)や短すぎるコマンドは対象外
+	// Determine whether the command is eligible.
+	// Charge commands (/) and commands that are too short are excluded.
 	if len(originalCmd.cmd) < 3 {
 		return nil
 	}
@@ -3378,17 +3485,17 @@ func autoGenerateExtendedCommand(originalCmd *Command) *Command {
 		return nil
 	}
 
-	// 最初の方向キー入力を探す
+	// Find the first directional key input.
 	firstInputKey := originalCmd.cmd[0].key[0]
 
 	var repeatPattern []cmdElem
 	repeatPos := -1
 
-	// 2番目の要素からループを開始し、最初のキーと同じキーを含む要素を探す
+	// Starting from the second element, look for an element that contains the same key as the first.
 	for i := 1; i < len(originalCmd.cmd); i++ {
 		found := false
 		for _, k := range originalCmd.cmd[i].key {
-			// `~` や `$` を無視して純粋なキーが同じか比較
+			// Compare the raw key while ignoring ~ and $.
 			if withoutTildeKey(k) == withoutTildeKey(firstInputKey) {
 				found = true
 				break
@@ -3396,7 +3503,7 @@ func autoGenerateExtendedCommand(originalCmd *Command) *Command {
 		}
 		if found {
 			repeatPos = i
-			// 最初の入力から、それが再度現れる直前までをパターンとする
+			// Treat the sequence from the first input up to just before it reappears as the pattern.
 			repeatPattern = originalCmd.cmd[0:repeatPos]
 			break
 		}
@@ -3414,7 +3521,7 @@ func autoGenerateExtendedCommand(originalCmd *Command) *Command {
 		modifiedPattern[i].key = newKeys
 	}
 
-	// 2番目以降のキー入力を$Nに置き換える
+	// Replace the second and subsequent key inputs with $N.
 	if len(modifiedPattern) > 1 {
 		for i := 1; i < len(modifiedPattern); i++ {
 			elem := &modifiedPattern[i]
@@ -3422,17 +3529,17 @@ func autoGenerateExtendedCommand(originalCmd *Command) *Command {
 		}
 	}
 
-	// 自動生成コマンドを作成
+	// Build the auto-generated command.
 	newCmdSlice := make([]cmdElem, 0, len(originalCmd.cmd)+len(modifiedPattern))
 	newCmdSlice = append(newCmdSlice, modifiedPattern...)
 	newCmdSlice = append(newCmdSlice, originalCmd.cmd...)
 
-	// 新規Command構造体を生成
+	// Create a new Command struct.
 	generatedCmd := *originalCmd
 	generatedCmd.cmd = newCmdSlice
 	generatedCmd.held = make([]bool, len(generatedCmd.hold))
 
-	// 繰り返しパターンの入力数に応じて猶予フレーム数 を加算する
+	// Add "grace frames" (time extension) based on the number of inputs in the repeating pattern.
 	timeExtension := int32(len(modifiedPattern)) * 4
 	generatedCmd.maxtime += timeExtension
 

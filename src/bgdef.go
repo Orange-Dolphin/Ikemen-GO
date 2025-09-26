@@ -8,44 +8,8 @@ import (
 	mgl "github.com/go-gl/mathgl/mgl32"
 )
 
-func (bgct *bgcTimeLine) stepBGDef(s *BGDef) {
-	if len(bgct.line) > 0 && bgct.line[0].waitTime <= 0 {
-		for _, b := range bgct.line[0].bgc {
-			for i, a := range bgct.al {
-				if b.idx < a.idx {
-					bgct.al = append(bgct.al, nil)
-					copy(bgct.al[i+1:], bgct.al[i:])
-					bgct.al[i] = b
-					b = nil
-					break
-				}
-			}
-			if b != nil {
-				bgct.al = append(bgct.al, b)
-			}
-		}
-		bgct.line = bgct.line[1:]
-	}
-	if len(bgct.line) > 0 {
-		bgct.line[0].waitTime--
-	}
-	var el []*bgCtrl
-	for i := 0; i < len(bgct.al); {
-		s.runBgCtrl(bgct.al[i])
-		if bgct.al[i].currenttime > bgct.al[i].endtime {
-			el = append(el, bgct.al[i])
-			bgct.al = append(bgct.al[:i], bgct.al[i+1:]...)
-			continue
-		}
-		i++
-	}
-	for _, b := range el {
-		bgct.add(b)
-	}
-}
-
-// BGDef is used on screenpacks lifebars and stages.
-// Also contains the SFF.
+// BGDef is essentially the screenpack version of stages
+// TODO: We could probably merge them better with stages
 type BGDef struct {
 	def          string
 	localcoord   [2]float32
@@ -53,8 +17,8 @@ type BGDef struct {
 	at           AnimationTable
 	bg           []*backGround
 	bgc          []bgCtrl
-	bgct         bgcTimeLine
 	bga          bgAction
+	time         int32
 	resetbg      bool
 	localscl     float32
 	scale        [2]float32
@@ -119,8 +83,11 @@ func loadBGDef(sff *Sff, model *Model, def string, bgname string) (*BGDef, error
 		if len(s.bg) > 0 && s.bg[len(s.bg)-1].positionlink {
 			bglink = s.bg[len(s.bg)-1]
 		}
-		s.bg = append(s.bg, readBackGround(bgsec, bglink,
-			s.sff, s.at, s.stageprops))
+		bg, err := readBackGround(bgsec, bglink, s.sff, s.at, s.stageprops, def)
+		if err != nil {
+			return nil, err
+		}
+		s.bg = append(s.bg, bg)
 	}
 	bgcdef := *newBgCtrl()
 	i = 0
@@ -171,6 +138,7 @@ func loadBGDef(sff *Sff, model *Model, def string, bgname string) (*BGDef, error
 	s.localscl = 240 / s.localcoord[1]
 	return s, nil
 }
+
 func (s *BGDef) getBg(id int32) (bg []*backGround) {
 	if id >= 0 {
 		for _, b := range s.bg {
@@ -181,15 +149,15 @@ func (s *BGDef) getBg(id int32) (bg []*backGround) {
 	}
 	return
 }
+
 func (s *BGDef) runBgCtrl(bgc *bgCtrl) {
-	bgc.currenttime++
 	switch bgc._type {
 	case BT_Anim:
 		a := s.at.get(bgc.v[0])
 		if a != nil {
 			for i := range bgc.bg {
 				bgc.bg[i].actionno = bgc.v[0]
-				bgc.bg[i].anim = *a
+				bgc.bg[i].anim = a
 			}
 		}
 	case BT_Visible:
@@ -198,7 +166,7 @@ func (s *BGDef) runBgCtrl(bgc *bgCtrl) {
 		}
 	case BT_Enable:
 		for i := range bgc.bg {
-			bgc.bg[i].visible, bgc.bg[i].active = bgc.v[0] != 0, bgc.v[0] != 0
+			bgc.bg[i].enabled = bgc.v[0] != 0
 		}
 	case BT_PosSet:
 		for i := range bgc.bg {
@@ -290,12 +258,56 @@ func (s *BGDef) runBgCtrl(bgc *bgCtrl) {
 		}
 	}
 }
+
 func (s *BGDef) action() {
-	s.bgct.stepBGDef(s)
+	// TODO: We could merge stage and motif BGCtrl's further. A lot of it is the same
+	for i := range s.bgc {
+		bgc := &s.bgc[i]
+		if bgc.starttime < 0 || (bgc.looptime >= 0 && bgc.starttime >= bgc.looptime) {
+			continue
+		}
+
+		if bgc.looptime > 0 && bgc.endtime > bgc.looptime {
+			bgc.endtime = bgc.looptime
+		}
+
+		active := false
+		if s.time >= bgc.starttime {
+			if bgc.looptime > 0 {
+				duration := bgc.endtime - bgc.starttime
+				if (s.time-bgc.starttime)%bgc.looptime <= duration {
+					active = true
+				}
+			} else {
+				if s.time <= bgc.endtime {
+					active = true
+				}
+			}
+		}
+
+		if active {
+			s.runBgCtrl(bgc)
+		}
+	}
+
+	// After BGCtrl mutates states, align video play/pause to "active"
+	for i := range s.bg {
+		if s.bg[i]._type == BG_Video {
+			// Apply visibility first to avoid initial audio blip at t=0 when Visible=0.
+			s.bg[i].video.SetVisible(s.bg[i].visible)
+			s.bg[i].video.SetPlaying(s.bg[i].enabled)
+		}
+	}
+
 	s.bga.action()
 	if s.model != nil {
 		s.model.step(1)
 	}
+
+	// Global time must be incremented after updating BGCtrl
+	// https://github.com/ikemen-engine/Ikemen-GO/issues/2656
+	s.time++
+
 	link := 0
 	for i, b := range s.bg {
 		s.bg[i].bga.action()
@@ -305,7 +317,7 @@ func (s *BGDef) action() {
 		} else {
 			link = i
 		}
-		if b.active {
+		if b.enabled {
 			s.bg[i].anim.Action()
 		}
 	}
@@ -330,7 +342,7 @@ func (s *BGDef) draw(layer int32, x, y, scl float32) {
 	}
 	//x, y = x/s.localscl, y/s.localscl
 	for _, b := range s.bg {
-		if b.layerno == layer && b.visible && b.anim.spr != nil {
+		if b.layerno == layer && b.visible && b.enabled && (b.anim.spr != nil || b._type == BG_Video) {
 			b.draw([...]float32{x, y}, scl, s.localscl, 1, s.scale, 0, false)
 		}
 	}
@@ -341,11 +353,5 @@ func (s *BGDef) reset() {
 	for i := range s.bg {
 		s.bg[i].reset()
 	}
-	for i := range s.bgc {
-		s.bgc[i].currenttime = 0
-	}
-	s.bgct.clear()
-	for i := len(s.bgc) - 1; i >= 0; i-- {
-		s.bgct.add(&s.bgc[i])
-	}
+	s.time = 0
 }

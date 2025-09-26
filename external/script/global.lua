@@ -27,6 +27,7 @@ addHotkey('7', true, false, false, true, true, 'toggleAI(7)')
 addHotkey('7', true, true, false, true, true, 'togglePlayer(7)')
 addHotkey('8', true, false, false, true, true, 'toggleAI(8)')
 addHotkey('8', true, true, false, true, true, 'togglePlayer(8)')
+addHotkey('9', true, true, false, true, true, 'togglePlayer(9)')
 addHotkey('F1', false, false, false, false, true, 'kill(2); kill(4); kill(6); kill(8); debugFlag(1)')
 addHotkey('F1', true, false, false, false, true, 'kill(1); kill(3); kill(5); kill(7); debugFlag(2)')
 addHotkey('F2', false, false, false, false, true, 'kill(1,1); kill(2,1); kill(3,1); kill(4,1); kill(5,1); kill(6,1); kill(7,1); kill(8,1); debugFlag(1); debugFlag(2)')
@@ -42,8 +43,8 @@ addHotkey('F10', false, false, false, true, false, 'saveState()')
 addHotkey('SPACE', false, false, false, false, true, 'full(1); full(2); full(3); full(4); full(5); full(6); full(7); full(8); setTime(getRoundTime()); debugFlag(1); debugFlag(2); clearConsole()')
 addHotkey('i', true, false, false, true, true, 'stand(1); stand(2); stand(3); stand(4); stand(5); stand(6); stand(7); stand(8)')
 addHotkey('PAUSE', false, false, false, true, false, 'togglePause(); closeMenu()')
-addHotkey('PAUSE', true, false, false, true, false, 'step()')
-addHotkey('SCROLLLOCK', false, false, false, true, false, 'step()')
+addHotkey('PAUSE', true, false, false, true, false, 'frameStep()')
+addHotkey('SCROLLLOCK', false, false, false, true, false, 'frameStep()')
 
 local speedMul = 1
 local speedAdd = 0

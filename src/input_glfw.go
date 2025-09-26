@@ -1,5 +1,3 @@
-//go:build !kinc
-
 package main
 
 import (
@@ -172,7 +170,12 @@ func KeyToString(k glfw.Key) string {
 
 func NewModifierKey(ctrl, alt, shift bool) (mod glfw.ModifierKey) {
 	if ctrl {
-		mod |= glfw.ModControl
+		// Convert Ctrl to Command (⌘) key for macOS if user prefers it
+		if runtime.GOOS == "darwin" && sys.cfg.Debug.MacOSUseCommandKey {
+			mod |= glfw.ModSuper
+		} else {
+			mod |= glfw.ModControl
+		}
 	}
 	if alt {
 		mod |= glfw.ModAlt
@@ -324,7 +327,7 @@ func CheckAxisForTrigger(joy int, axes *[]float32) string {
 					fmt.Printf("[input_glfw.go][checkAxisForTrigger] 1.AXIS joy=%v i=%v s:%v axes[i]=%v, name = %s\n", joy, i, s, (*axes)[i], name)
 					break
 				}
-			} else if strings.Contains(name, "XInput") || strings.Contains(name, "X360") ||
+			} else if strings.Contains(name, "XInput") || strings.Contains(name, "X360") || strings.Contains(name, "Xbox 360") ||
 				strings.Contains(name, "Xbox Wireless") || strings.Contains(name, "Xbox Elite") || strings.Contains(name, "Xbox One") ||
 				strings.Contains(name, "Xbox Series") || strings.Contains(name, "Xbox Adaptive") {
 				if (i == 4 || i == 5) && os == "windows" {
@@ -332,7 +335,7 @@ func CheckAxisForTrigger(joy int, axes *[]float32) string {
 				} else if (i == 2 || i == 5) && os != "windows" {
 					// do nothing
 				}
-			} else if (i == 4 || i == 5) && (joyName == "PS4 Controller.windows.amd64.sdl" || (strings.Contains(name, "Atari Game") && os != "windows")) {
+			} else if (i == 4 || i == 5) && (joyName == "PS4 Controller.windows.amd64.sdl" || (strings.Contains(name, "Atari VCS") && os != "windows")) {
 				// do nothing
 			} else if (i == 2 || i == 5) && joyName == "Steam Virtual Gamepad.linux.amd64.glfw" {
 				// do nothing

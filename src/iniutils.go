@@ -1084,6 +1084,12 @@ func SetValueUpdate(obj interface{}, iniFile *ini.File, query string, value inte
 	switch v := value.(type) {
 	case nil:
 		valStr = "nil"
+	case bool:
+		if v {
+			valStr = "1"
+		} else {
+			valStr = "0"
+		}
 	case []string:
 		valStr = strings.Join(v, ", ")
 	default:
@@ -1102,6 +1108,16 @@ func SetValueUpdate(obj interface{}, iniFile *ini.File, query string, value inte
 func SaveINI(iniFile *ini.File, filePath string) error {
 	if iniFile == nil {
 		return fmt.Errorf("iniFile is not initialized")
+	}
+	// Normalize all true/false to 1/0
+	for _, section := range iniFile.Sections() {
+		for _, key := range section.Keys() {
+			if key.Value() == "true" {
+				key.SetValue("1")
+			} else if key.Value() == "false" {
+				key.SetValue("0")
+			}
+		}
 	}
 	return iniFile.SaveTo(filePath)
 }

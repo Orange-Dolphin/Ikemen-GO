@@ -665,16 +665,19 @@ function start.f_selectPal(ref, palno)
     if palno ~= nil and palno > 0 then
         local mappedPal = start.f_keyPalMap(ref, palno)
 
-        -- Check if the mapped palette is defined and not already used.
-        local isDefined = false
-        for _, p in ipairs(availablePals) do
-            if p == mappedPal then
-                isDefined = true
-                break
-            end
-        end
+        -- Check if the mapped palette is defined and not already used. (MUGEN doesn't do this)
+		-- This leads to issues with certain characters who don't have the entire group 1's indices
+		-- filled out, so it's been commented out for compatibility.
 
-        if isDefined and not t_assignedPals[mappedPal] then
+        -- local isDefined = false
+        -- for _, p in ipairs(availablePals) do
+        --     if p == mappedPal then
+        --         isDefined = true
+        --         break
+        --     end
+        -- end
+
+        if not t_assignedPals[mappedPal] then
             return mappedPal
         end
         
@@ -1120,6 +1123,24 @@ function start.f_searchEmptyBoxes(x, y, side, direction)
 	end
 end
 
+--calculate cursor.tween
+local function f_cursorTween(val, target, velocity)
+    if not velocity or not target then
+        return val
+    end
+    for i = 1, 2 do
+        local t = target[i] or 0
+        local v = velocity[i] or 0
+        if v > 0 then
+            local factor = math.min(v * 0.1, 1)
+            val[i] = val[i] + (t - val[i]) * factor
+        else
+            val[i] = t
+        end
+    end
+    return val
+end
+
 --returns player cursor data
 function start.f_getCursorData(pn, suffix)
 	if main.coop and motif.select_info['p' .. pn .. suffix] ~= nil then
@@ -1146,7 +1167,7 @@ function start.f_drawCursor(pn, x, y, param, done)
 		motif.f_loadSprData(motif.select_info, {s = prefix .. '_'})
 	end
 
-	-- choose cursor storage table (active vs done)
+	-- select appropriate cursor table and initialize if needed
 	local store = done and cursorDone or cursorActive
 	if store[pn] == nil then
 		store[pn] = {
@@ -1164,7 +1185,7 @@ function start.f_drawCursor(pn, x, y, param, done)
 	local baseX = motif.select_info.pos[1] + x * (motif.select_info.cell_size[1] + motif.select_info.cell_spacing[1]) + start.f_faceOffset(x + 1, y + 1, 1)
     local baseY = motif.select_info.pos[2] + y * (motif.select_info.cell_size[2] + motif.select_info.cell_spacing[2]) + start.f_faceOffset(x + 1, y + 1, 2)
 
-	-- first initialization or reset (snap cursor directly)
+	-- initialization or snap: set cursor directly
 	if not cd.init or done or cd.snap then
 		for i = 1, 2 do
 			cd.currentPos[i] = (i == 1) and baseX or baseY
@@ -1173,7 +1194,7 @@ function start.f_drawCursor(pn, x, y, param, done)
 			cd.slideOffset[i]= 0
 		end
 		cd.init, cd.snap = true, false
-	-- new cell selected: recalculate tween
+	-- new cell selected: recalc tween offsets
 	elseif cd.targetPos[1] ~= baseX or cd.targetPos[2] ~= baseY then
 		cd.startPos[1], cd.startPos[2] = cd.currentPos[1], cd.currentPos[2]
 		cd.targetPos[1], cd.targetPos[2] = baseX, baseY
@@ -1181,41 +1202,20 @@ function start.f_drawCursor(pn, x, y, param, done)
 		cd.slideOffset[2] = cd.startPos[2] - baseY
 	end
 
-	-- tween movement
+	-- apply tween if enabled, otherwise snap to target
 	if not done and motif.select_info['p' .. pn .. '_cursor_tween'] == 1 then
-		local t_speed = {
-			motif.select_info['p' .. pn .. '_cursor_tween_speed'][1],
-			motif.select_info['p' .. pn .. '_cursor_tween_speed'][2]
+		local t_velocity = {
+			motif.select_info['p' .. pn .. '_cursor_tween_velocity'][1],
+			motif.select_info['p' .. pn .. '_cursor_tween_velocity'][2]
 		}
-		-- tween wrapping speed
-		if motif.select_info.wrapping == 1 then
-			local dx = cd.targetPos[1] - cd.startPos[1]
-			local dy = cd.targetPos[2] - cd.startPos[2]
-			if math.abs(dx) > motif.select_info.cell_size[1] * (motif.select_info.columns - 1) then
-				if motif.select_info['p' .. pn .. '_cursor_tween_wrap_speed'][1] == 0 then
-					t_speed[1] = t_speed[1] * motif.select_info.columns
-				else
-					t_speed[1] = motif.select_info['p' .. pn .. '_cursor_tween_wrap_speed'][1]
-				end
-			end
-			if math.abs(dy) > motif.select_info.cell_size[2] * (motif.select_info.rows - 1) then
-				if motif.select_info['p' .. pn .. '_cursor_tween_wrap_speed'][2] == 0 then 
-					t_speed[2] = t_speed[2] * motif.select_info.rows
-				else
-					t_speed[2] = motif.select_info['p' .. pn .. '_cursor_tween_wrap_speed'][2]
-				end
-			end
-		end
-        f_slideDistCalc(cd.slideOffset, {0, 0}, t_speed)
-		-- apply offset to get final interpolated position
-		cd.currentPos[1] = cd.targetPos[1] + cd.slideOffset[1]
-		cd.currentPos[2] = cd.targetPos[2] + cd.slideOffset[2]
-    else
-		-- no tween
-		cd.currentPos[1], cd.currentPos[2] = baseX, baseY
-		cd.targetPos[1], cd.targetPos[2] = baseX, baseY
+		f_cursorTween(cd.slideOffset, {0, 0}, t_velocity)
+	else
 		cd.slideOffset[1], cd.slideOffset[2] = 0, 0
-    end
+	end
+	-- update final cursor position
+	cd.currentPos[1] = cd.targetPos[1] + cd.slideOffset[1]
+	cd.currentPos[2] = cd.targetPos[2] + cd.slideOffset[2]
+
 	-- draw
 	main.f_animPosDraw(
 		motif.select_info[prefix .. '_data'],

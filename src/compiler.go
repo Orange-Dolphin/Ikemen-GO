@@ -30,6 +30,7 @@ type Compiler struct {
 	funcs            map[string]bytecodeFunction
 	funcUsed         map[string]bool
 	stateNo          int32
+	zssMode          bool
 }
 
 func newCompiler() *Compiler {
@@ -386,6 +387,7 @@ var triggerMap = map[string]int{
 	"float":              1,
 	"gamemode":           1,
 	"gameoption":         1,
+	"gamevar":            1,
 	"groundangle":        1,
 	"guardbreak":         1,
 	"guardcount":         1,
@@ -427,7 +429,6 @@ var triggerMap = map[string]int{
 	"palfxvar":           1,
 	"pausetime":          1,
 	"physics":            1,
-	"playercount":        1,
 	"playerindexexist":   1,
 	"playerno":           1,
 	"playernoexist":      1,
@@ -458,7 +459,6 @@ var triggerMap = map[string]int{
 	"stagefrontedgedist": 1,
 	"stagetime":          1,
 	"standby":            1,
-	"systemvar":          1,
 	"teamleader":         1,
 	"teamsize":           1,
 	"timeelapsed":        1,
@@ -1725,6 +1725,12 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		case "length":
 			opct = OC_ex2_
 			opc = OC_ex2_bgmvar_length
+		case "loop":
+			opct = OC_ex2_
+			opc = OC_ex2_bgmvar_loop
+		case "loopcount":
+			opct = OC_ex2_
+			opc = OC_ex2_bgmvar_loopcount
 		case "loopend":
 			opct = OC_ex2_
 			opc = OC_ex2_bgmvar_loopend
@@ -2671,7 +2677,8 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			return nil
 		}
 		if err := eqne(hda); err != nil {
-			if sys.cgi[c.playerNo].ikemenverF > 0 || !sys.ignoreMostErrors {
+			//if sys.cgi[c.playerNo].ikemenverF > 0 || !sys.ignoreMostErrors {
+			if c.zssMode || !sys.ignoreMostErrors {
 				return bvNone(), err
 			}
 			sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": HitDefAttr Missing '=' or '!=' "+" in state %v ", c.stateNo))
@@ -4341,6 +4348,31 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		if err := nameSub(OC_ex_, OC_ex_gamemode); err != nil {
 			return bvNone(), err
 		}
+	case "gamevar":
+		if err := c.checkOpeningParenthesis(in); err != nil {
+			return bvNone(), err
+		}
+		svname := c.token
+		c.token = c.tokenizer(in)
+		if err := c.checkClosingParenthesis(); err != nil {
+			return bvNone(), err
+		}
+		switch svname {
+		case "introtime":
+			opc = OC_ex2_gamevar_introtime
+		case "outrotime":
+			opc = OC_ex2_gamevar_outrotime
+		case "pausetime":
+			opc = OC_ex2_gamevar_pausetime
+		case "slowtime":
+			opc = OC_ex2_gamevar_slowtime
+		case "superpausetime":
+			opc = OC_ex2_gamevar_superpausetime
+		default:
+			return bvNone(), Error("Invalid GameVar argument: " + svname)
+		}
+		out.append(OC_ex2_)
+		out.append(opc)
 	case "groundangle":
 		out.append(OC_ex_, OC_ex_groundangle)
 	case "guardbreak":
@@ -4469,6 +4501,10 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_autoguard))
 		case "drawunder":
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_drawunder))
+		case "noaibuttonjam":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_noaibuttonjam))
+		case "noaicheat":
+			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_noaicheat))
 		case "noailevel":
 			out.appendI64Op(OC_ex_isassertedchar, int64(ASF_noailevel))
 		case "noairjump":
@@ -4701,8 +4737,6 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		}); err != nil {
 			return bvNone(), err
 		}
-	case "playercount":
-		out.append(OC_ex_, OC_ex_playercount)
 	case "playerindexexist":
 		if _, err := c.oneArg(out, in, rd, true); err != nil {
 			return bvNone(), err
@@ -4756,31 +4790,6 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 		out.append(OC_ex_, OC_ex_stagetime)
 	case "standby":
 		out.append(OC_ex_, OC_ex_standby)
-	case "systemvar":
-		if err := c.checkOpeningParenthesis(in); err != nil {
-			return bvNone(), err
-		}
-		svname := c.token
-		c.token = c.tokenizer(in)
-		if err := c.checkClosingParenthesis(); err != nil {
-			return bvNone(), err
-		}
-		switch svname {
-		case "introtime":
-			opc = OC_ex2_systemvar_introtime
-		case "outrotime":
-			opc = OC_ex2_systemvar_outrotime
-		case "pausetime":
-			opc = OC_ex2_systemvar_pausetime
-		case "slowtime":
-			opc = OC_ex2_systemvar_slowtime
-		case "superpausetime":
-			opc = OC_ex2_systemvar_superpausetime
-		default:
-			return bvNone(), Error("Invalid SystemVar argument: " + svname)
-		}
-		out.append(OC_ex2_)
-		out.append(opc)
 	case "teamleader":
 		out.append(OC_ex_, OC_ex_teamleader)
 	case "teamsize":
@@ -5612,27 +5621,144 @@ func (c *Compiler) paramValue(is IniSection, sc *StateControllerBase,
 	return nil
 }
 
+func (c *Compiler) paramAnimtype(is IniSection, sc *StateControllerBase, paramName string, id byte) error {
+	return c.stateParam(is, paramName, false, func(data string) error {
+		if len(data) == 0 {
+			return Error(paramName + " not specified")
+		}
+		var ra Reaction
+		dataLower := strings.ToLower(data)
+		//if sys.cgi[c.playerNo].ikemenver[0] == 0 && sys.cgi[c.playerNo].ikemenver[1] == 0 {
+		if !c.zssMode {
+			// CNS: first letter is enough
+			switch dataLower[0] {
+			case 'l':
+				ra = RA_Light
+			case 'm':
+				ra = RA_Medium
+			case 'h':
+				ra = RA_Hard
+			case 'b':
+				ra = RA_Back
+			case 'u':
+				ra = RA_Up
+			case 'd':
+				ra = RA_Diagup
+			default:
+				return Error("Invalid " + paramName + ": " + data)
+			}
+		} else {
+			// ZSS: require full word
+			switch dataLower {
+			case "light":
+				ra = RA_Light
+			case "medium":
+				ra = RA_Medium
+			case "hard":
+				ra = RA_Hard
+			case "back":
+				ra = RA_Back
+			case "up":
+				ra = RA_Up
+			case "diagup":
+				ra = RA_Diagup
+			default:
+				return Error("Invalid " + paramName + ": " + data)
+			}
+		}
+		sc.add(id, sc.iToExp(int32(ra)))
+		return nil
+	})
+}
+
+func (c *Compiler) paramHittype(is IniSection, sc *StateControllerBase, paramName string, id byte) error {
+	return c.stateParam(is, paramName, false, func(data string) error {
+		if len(data) == 0 {
+			return Error(paramName + " not specified")
+		}
+		var ht HitType
+		dataLower := strings.ToLower(data)
+		//if sys.cgi[c.playerNo].ikemenver[0] == 0 && sys.cgi[c.playerNo].ikemenver[1] == 0 {
+		if !c.zssMode {
+			// CNS: first letter is enough
+			switch dataLower[0] {
+			case 'h':
+				ht = HT_High
+			case 'l':
+				ht = HT_Low
+			case 't':
+				ht = HT_Trip
+			case 'n':
+				ht = HT_None
+			default:
+				return Error("Invalid " + paramName + ": " + data)
+			}
+		} else {
+			// ZSS: require full word
+			switch dataLower {
+			case "high":
+				ht = HT_High
+			case "low":
+				ht = HT_Low
+			case "trip":
+				ht = HT_Trip
+			case "none":
+				ht = HT_None
+			default:
+				return Error("Invalid " + paramName + ": " + data)
+			}
+		}
+		sc.add(id, sc.iToExp(int32(ht)))
+		return nil
+	})
+}
+
 func (c *Compiler) paramPostype(is IniSection, sc *StateControllerBase, id byte) error {
 	return c.stateParam(is, "postype", false, func(data string) error {
 		if len(data) == 0 {
 			return Error("postype not specified")
 		}
 		var pt PosType
-		if len(data) >= 2 && strings.ToLower(data[:2]) == "p2" {
-			pt = PT_P2
+		dataLower := strings.ToLower(data)
+		//if sys.cgi[c.playerNo].ikemenver[0] == 0 && sys.cgi[c.playerNo].ikemenver[1] == 0 {
+		if !c.zssMode {
+			// CNS: first letter is enough
+			if len(dataLower) >= 2 && dataLower[:2] == "p2" {
+				pt = PT_P2
+			} else {
+				switch dataLower[0] {
+				case 'p':
+					pt = PT_P1
+				case 'f':
+					pt = PT_Front
+				case 'b':
+					pt = PT_Back
+				case 'l':
+					pt = PT_Left
+				case 'r':
+					pt = PT_Right
+				case 'n':
+					pt = PT_None
+				default:
+					return Error("Invalid postype: " + data)
+				}
+			}
 		} else {
-			switch strings.ToLower(data)[0] {
-			case 'p':
+			// ZSS: require full word
+			switch dataLower {
+			case "p1":
 				pt = PT_P1
-			case 'f':
+			case "p2":
+				pt = PT_P2
+			case "front":
 				pt = PT_Front
-			case 'b':
+			case "back":
 				pt = PT_Back
-			case 'l':
+			case "left":
 				pt = PT_Left
-			case 'r':
+			case "right":
 				pt = PT_Right
-			case 'n':
+			case "none":
 				pt = PT_None
 			default:
 				return Error("Invalid postype: " + data)
@@ -5655,7 +5781,8 @@ func (c *Compiler) paramSpace(is IniSection, sc *StateControllerBase, id byte) e
 		case "screen":
 			spc = Space_screen
 		default:
-			if sys.cgi[c.playerNo].ikemenverF > 0 && !sys.ignoreMostErrors {
+			//if sys.cgi[c.playerNo].ikemenverF > 0 && !sys.ignoreMostErrors {
+			if c.zssMode && !sys.ignoreMostErrors {
 				return Error("Invalid space type: " + data)
 			} else {
 				sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": Invalid space type: "+data+" in state %v ", c.stateNo))
@@ -6010,13 +6137,14 @@ func cnsStringArray(arg string) ([]string, error) {
 func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 	filename string, dirs []string, negoverride bool, constants map[string]float32) error {
 	var str string
-	zss := HasExtension(filename, ".zss")
+	c.zssMode = HasExtension(filename, ".zss")
 	fnz := filename
+
 	// Load state file
 	if err := LoadFile(&filename, dirs, func(filename string) error {
 		var err error
 		// If this is a zss file
-		if zss {
+		if c.zssMode {
 			b, err := LoadText(filename)
 			if err != nil {
 				return err
@@ -6043,6 +6171,7 @@ func (c *Compiler) stateCompile(states map[int32]StateBytecode,
 		}
 		return err
 	}
+
 	c.lines, c.i = SplitAndTrim(str, "\n"), 0
 	errmes := func(err error) error {
 		return Error(fmt.Sprintf("%v:%v:\n%v", filename, c.i+1, err.Error()))

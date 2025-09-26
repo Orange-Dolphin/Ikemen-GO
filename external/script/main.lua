@@ -2794,6 +2794,7 @@ main.t_itemname = {
 	end,
 	--SERVER CONNECT
 	['serverconnect'] = function(t, item)
+		sndPlay(motif.files.snd_data, motif[main.group].cursor_done_snd[1], motif[main.group].cursor_done_snd[2]) -- Needs manual sndPlay due to special menu behavior
 		if main.f_connect(gameOption('Netplay.IP.' .. t[item].displayname), main.f_extractText(motif.title_info.connecting_join_text, t[item].displayname, gameOption('Netplay.IP.' .. t[item].displayname))) then
 			synchronize()
 			math.randomseed(sszRandom())
@@ -2807,6 +2808,7 @@ main.t_itemname = {
 	end,
 	--SERVER HOST
 	['serverhost'] = function(t, item)
+		sndPlay(motif.files.snd_data, motif[main.group].cursor_done_snd[1], motif[main.group].cursor_done_snd[2]) -- Needs manual sndPlay due to special menu behavior
 		if main.f_connect("", main.f_extractText(motif.title_info.connecting_host_text, gameOption('Netplay.ListenPort'))) then
 			synchronize()
 			math.randomseed(sszRandom())
@@ -3171,6 +3173,7 @@ function main.f_createMenu(tbl, bool_bgreset, bool_main, bool_f1, bool_del)
 		--skip showing menu if there is only 1 valid item
 		local cnt = 0
 		local f = ''
+		main.f_menuSnap(main.group)
 		for _, v in ipairs(tbl.items) do
 			if tbl.name == 'bonusgames' --[[or tbl.name == 'storymode']] or v.itemname == 'joinadd' then
 				skip = true
@@ -3316,6 +3319,7 @@ function main.f_createMenu(tbl, bool_bgreset, bool_main, bool_f1, bool_del)
 							end
 							tbl.submenu[f].loop()
 							f = ''
+							main.f_menuSnap(main.group)
 						else
 							break
 						end
@@ -3864,8 +3868,30 @@ function main.f_demoStart()
 	main.f_fadeReset('fadein', motif.demo_mode)
 end
 
+--calculate menu.tween and boxcursor.tween
+local function f_tweenStep(val, target, velocity)
+    if not velocity or velocity <= 0 then
+		return target
+	end
+    local factor = math.min(velocity * 0.1, 1)
+    return val + (target - val) * factor
+end
+
 --common menu calculations
 function main.f_menuCommonCalc(t, item, cursorPosY, moveTxt, section, keyPrev, keyNext)
+	-- persistent scroll tween per section
+	if not main.menuTweenData then
+		main.menuTweenData = {}
+	end
+	if not main.menuTweenData[section] then
+		main.menuTweenData[section] = {
+			currentPos = 0,
+			targetPos = 0,
+			slideOffset = 0
+		}
+	end
+	local td = main.menuTweenData[section]
+
 	local startItem = 1
 	for _, v in ipairs(t) do
 		if v.itemname ~= 'empty' then
@@ -3905,21 +3931,15 @@ function main.f_menuCommonCalc(t, item, cursorPosY, moveTxt, section, keyPrev, k
 	if item > #t or (item == 1 and t[item].itemname == 'empty') then
 		item = 1
 		while true do
-			if t[item].itemname ~= 'empty' or item >= #t then
-				break
-			else
-				item = item + 1
-			end
+			if t[item].itemname ~= 'empty' or item >= #t then break end
+			item = item + 1
 		end
 		cursorPosY = item
 	elseif item < 1 then
 		item = #t
 		while true do
-			if t[item].itemname ~= 'empty' or item <= 1 then
-				break
-			else
-				item = item - 1
-			end
+			if t[item].itemname ~= 'empty' or item <= 1 then break end
+			item = item - 1
 		end
 		if item > motif[section].menu_window_visibleitems then
 			cursorPosY = motif[section].menu_window_visibleitems
@@ -3927,11 +3947,46 @@ function main.f_menuCommonCalc(t, item, cursorPosY, moveTxt, section, keyPrev, k
 			cursorPosY = item
 		end
 	end
-	if cursorPosY >= motif[section].menu_window_visibleitems then
-		moveTxt = (item - motif[section].menu_window_visibleitems) * motif[section].menu_item_spacing[2]
-	elseif cursorPosY <= startItem then
-		moveTxt = (item - startItem) * motif[section].menu_item_spacing[2]
+	-- compute target: determine first visible item to keep cursor at row `cursorPosY`, clamp to valid range, and convert to pixel offset
+	local visible = motif[section].menu_window_visibleitems
+	local spacing = motif[section].menu_item_spacing[2]
+	
+	local maxFirst = math.max(startItem, #t - visible + 1)
+	if maxFirst < startItem then 
+		maxFirst = startItem 
 	end
+
+	local desiredFirst = item - cursorPosY + 1
+	if desiredFirst < startItem then 
+		desiredFirst = startItem 
+	end
+	if desiredFirst > maxFirst then 
+		desiredFirst = maxFirst 
+	end
+
+	local targetMove = (desiredFirst - 1) * spacing
+	-- update target and offset if changed, snap immediately if requested, otherwise apply tween or direct move
+	if td.targetPos ~= targetMove then
+		td.targetPos = targetMove
+		td.slideOffset = td.currentPos - td.targetPos
+	end
+
+	if main.menuSnap then
+		td.currentPos = td.targetPos
+		td.slideOffset = 0
+		main.menuSnap = false
+		moveTxt = td.currentPos
+		return cursorPosY, moveTxt, item
+	end
+
+	if motif[section].menu_tween == 1 then
+		td.slideOffset = f_tweenStep(td.slideOffset, 0, motif[section].menu_tween_velocity)
+		td.currentPos = td.targetPos + td.slideOffset
+	else
+		td.currentPos = td.targetPos
+		td.slideOffset = 0
+	end
+	moveTxt = td.currentPos
 	return cursorPosY, moveTxt, item
 end
 
@@ -3951,6 +4006,7 @@ end
 --common menu draw
 local rect_boxcursor = rect:create({})
 local rect_boxbg = rect:create({})
+main.boxCursorData = {}
 function main.f_menuCommonDraw(t, item, cursorPosY, moveTxt, section, bgdef, title, defsc, footer_txt, skipClear)
 	--draw clearcolor
 	if not skipClear then
@@ -3977,12 +4033,24 @@ function main.f_menuCommonDraw(t, item, cursorPosY, moveTxt, section, bgdef, tit
 	--draw title
 	title:draw()
 	--draw menu items
+	local td = nil
+	if main.menuTweenData and main.menuTweenData[section] then
+		td = main.menuTweenData[section]
+	end
+	local cur = moveTxt
+	local tgt = moveTxt
+	if td then
+		cur = td.currentPos or td.slideOffset or cur
+		tgt = td.targetPos or tgt
+	end
+	local tweenDone = math.abs((cur or 0) - (tgt or 0)) < 1
+
 	local items_shown = item + motif[section].menu_window_visibleitems - cursorPosY
 	if items_shown > #t or (motif[section].menu_window_visibleitems > 0 and items_shown < #t and (motif[section].menu_window_margins_y[1] ~= 0 or motif[section].menu_window_margins_y[2] ~= 0)) then
 		items_shown = #t
 	end
 	for i = 1, items_shown do
-		if i > item - cursorPosY then
+		if i > item - cursorPosY or not tweenDone then
 			if i == item then
 				--Draw active item background
 				if motif[section].menu_item_active_bg_data ~= nil then
@@ -4134,6 +4202,32 @@ function main.f_menuCommonDraw(t, item, cursorPosY, moveTxt, section, bgdef, tit
 			end
 		end
 	end
+	--initialize storage for boxcursor per section if missing
+	if not main.boxCursorData[section] then
+		main.boxCursorData[section] = {
+			offsetY = 0, 
+			snap = 0, 
+			init = false
+		}
+	end
+	local bcd = main.boxCursorData[section]
+	--calculate target Y position for cursor
+	local targetY = motif[section].menu_pos[2] + motif[section].menu_boxcursor_coords[2] + (cursorPosY - 1) * motif[section].menu_item_spacing[2]
+	local t_velocity = motif[section].menu_boxcursor_tween_velocity
+
+	--snap cursor immediately if first use or snap enabled
+	if bcd.snap == 1 or not bcd.init then
+		bcd.offsetY = targetY
+		bcd.init = true
+		bcd.snap = -1
+	end
+
+	--apply tween if enabled, otherwise snap to target
+	if motif[section].menu_boxcursor_tween == 1 then
+		bcd.offsetY = f_tweenStep(bcd.offsetY, targetY, t_velocity)
+	else
+		bcd.offsetY = targetY
+	end
 	--draw menu cursor
 	if motif[section].menu_boxcursor_visible == 1 and not main.fadeActive then
 		local src, dst = main.f_boxcursorAlpha(
@@ -4146,7 +4240,7 @@ function main.f_menuCommonDraw(t, item, cursorPosY, moveTxt, section, bgdef, tit
 		)
 		rect_boxcursor:update({
 			x1 =    motif[section].menu_pos[1] + motif[section].menu_boxcursor_coords[1] + (cursorPosY - 1) * motif[section].menu_item_spacing[1],
-			y1 =    motif[section].menu_pos[2] + motif[section].menu_boxcursor_coords[2] + (cursorPosY - 1) * motif[section].menu_item_spacing[2],
+			y1 =    bcd.offsetY,
 			x2 =    motif[section].menu_boxcursor_coords[3] - motif[section].menu_boxcursor_coords[1] + 1,
 			y2 =    motif[section].menu_boxcursor_coords[4] - motif[section].menu_boxcursor_coords[2] + 1,
 			r =     motif[section].menu_boxcursor_col[1],
@@ -4192,6 +4286,14 @@ function main.f_menuCommonDraw(t, item, cursorPosY, moveTxt, section, bgdef, tit
 	end
 	if not skipClear then
 		refresh()
+	end
+end
+
+--force menu to snap, boxcursor snaps if enabled
+function main.f_menuSnap(section)
+	main.menuSnap = true
+	if main.boxCursorData[section] then
+		main.boxCursorData[section].snap = motif[section].menu_boxcursor_tween_snap
 	end
 end
 

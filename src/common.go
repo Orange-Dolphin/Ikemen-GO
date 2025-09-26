@@ -1095,35 +1095,36 @@ func (l *Layout) DrawText(x, y, scl float32, ln int16,
 }
 
 type AnimLayout struct {
-	anim  Animation
+	anim  *Animation
 	lay   Layout
 	palfx *PalFX
 }
 
-func newAnimLayout(sff *Sff, ln int16) *AnimLayout {
-	return &AnimLayout{anim: *newAnimation(sff, &sff.palList), lay: *newLayout(ln), palfx: newPalFX()}
+func newAnimLayout(sff *Sff, ln int16) AnimLayout {
+	return AnimLayout{
+		anim:  newAnimation(sff, &sff.palList),
+		lay:   *newLayout(ln),
+		palfx: newPalFX(),
+	}
 }
 
-func ReadAnimLayout(pre string, is IniSection,
-	sff *Sff, at AnimationTable, ln int16) *AnimLayout {
+func ReadAnimLayout(pre string, is IniSection, sff *Sff, at AnimationTable, ln int16) AnimLayout {
 	al := newAnimLayout(sff, ln)
 	al.Read(pre, is, at, ln)
 	return al
 }
 
-func (al *AnimLayout) Read(pre string, is IniSection, at AnimationTable,
-	ln int16) {
+func (al *AnimLayout) Read(pre string, is IniSection, at AnimationTable, ln int16) {
 	var g, n int32
 	if is.ReadI32(pre+"spr", &g, &n) {
 		al.anim.frames = []AnimFrame{*newAnimFrame()}
-		al.anim.frames[0].Group, al.anim.frames[0].Number =
-			I32ToI16(g), I32ToI16(n)
+		al.anim.frames[0].Group, al.anim.frames[0].Number = I32ToI16(g), I32ToI16(n)
 		al.anim.mask = 0
 		al.lay = *newLayout(ln)
 	}
 	if is.ReadI32(pre+"anim", &n) {
 		if ani := at.get(n); ani != nil {
-			al.anim = *ani
+			al.anim = ani
 			al.lay = *newLayout(ln)
 		}
 	}
@@ -1132,18 +1133,22 @@ func (al *AnimLayout) Read(pre string, is IniSection, at AnimationTable,
 }
 
 func (al *AnimLayout) Reset() {
-	al.anim.Reset()
+	if al.anim != nil {
+		al.anim.Reset()
+	}
 }
 
 func (al *AnimLayout) Action() {
 	if al.palfx != nil {
 		al.palfx.step()
 	}
-	al.anim.Action()
+	if al.anim != nil {
+		al.anim.Action()
+	}
 }
 
 func (al *AnimLayout) Draw(x, y float32, layerno int16, scale float32) {
-	al.lay.DrawAnim(&al.lay.window, x, y, scale, 1, 1, layerno, &al.anim, al.palfx)
+	al.lay.DrawAnim(&al.lay.window, x, y, scale, 1, 1, layerno, al.anim, al.palfx)
 }
 
 func ReadPalFX(pre string, is IniSection, pfx *PalFX) int32 {
@@ -1216,18 +1221,22 @@ func ReadPalFX(pre string, is IniSection, pfx *PalFX) int32 {
 type AnimTextSnd struct {
 	snd         [2]int32
 	text        LbText
-	anim        AnimLayout
+	animLayout  AnimLayout
 	displaytime int32
 	cnt         int32
 }
 
 func newAnimTextSnd(sff *Sff, ln int16) *AnimTextSnd {
-	return &AnimTextSnd{snd: [2]int32{-1},
-		anim: *newAnimLayout(sff, ln), displaytime: -2}
+	return &AnimTextSnd{
+		snd:         [2]int32{-1},
+		animLayout:  newAnimLayout(sff, ln),
+		displaytime: -2,
+	}
 }
 
 func ReadAnimTextSnd(pre string, is IniSection,
 	sff *Sff, at AnimationTable, ln int16, f []*Fnt) *AnimTextSnd {
+
 	ats := newAnimTextSnd(sff, ln)
 	ats.Read(pre, is, at, ln, f)
 	return ats
@@ -1237,19 +1246,19 @@ func (ats *AnimTextSnd) Read(pre string, is IniSection, at AnimationTable,
 	ln int16, f []*Fnt) {
 	is.ReadI32(pre+"snd", &ats.snd[0], &ats.snd[1])
 	ats.text = *readLbText(pre, is, "", ln, f, 0)
-	ats.anim.lay = *newLayout(ln)
-	ats.anim.Read(pre, is, at, ln)
+	ats.animLayout.lay = *newLayout(ln)
+	ats.animLayout.Read(pre, is, at, ln)
 	is.ReadI32(pre+"displaytime", &ats.displaytime)
 }
 
 func (ats *AnimTextSnd) Reset() {
-	ats.anim.Reset()
+	ats.animLayout.Reset()
 	ats.cnt = 0
 	ats.text.resetTxtPfx()
 }
 
 func (ats *AnimTextSnd) Action() {
-	ats.anim.Action()
+	ats.animLayout.Action()
 	ats.cnt++
 	ats.text.step()
 }
@@ -1258,8 +1267,8 @@ func (ats *AnimTextSnd) Draw(x, y float32, layerno int16, f []*Fnt, scale float3
 	if ats.displaytime > 0 && ats.cnt > ats.displaytime {
 		return
 	}
-	if len(ats.anim.anim.frames) > 0 {
-		ats.anim.Draw(x, y, layerno, scale)
+	if len(ats.animLayout.anim.frames) > 0 {
+		ats.animLayout.Draw(x, y, layerno, scale)
 	} else if ats.text.font[0] >= 0 && int(ats.text.font[0]) < len(f) &&
 		len(ats.text.text) > 0 {
 		for k, v := range strings.Split(ats.text.text, "\\n") {
@@ -1277,7 +1286,7 @@ func (ats *AnimTextSnd) NoSound() bool {
 }
 
 func (ats *AnimTextSnd) NoDisplay() bool {
-	return len(ats.anim.anim.frames) == 0 &&
+	return len(ats.animLayout.anim.frames) == 0 &&
 		(ats.text.font[0] < 0 || len(ats.text.text) == 0)
 }
 
@@ -1286,9 +1295,9 @@ func (ats *AnimTextSnd) NoDisplay() bool {
 // https://github.com/ikemen-engine/Ikemen-GO/issues/1150
 func (ats *AnimTextSnd) End(dt int32, inf bool) bool {
 	if ats.displaytime < 0 {
-		return len(ats.anim.anim.frames) == 0 || ats.anim.anim.loopend ||
-			(inf && ats.anim.anim.frames[ats.anim.anim.curelem].Time == -1 &&
-				ats.anim.anim.curelem == int32(len(ats.anim.anim.frames)-1))
+		return len(ats.animLayout.anim.frames) == 0 || ats.animLayout.anim.loopend ||
+			(inf && ats.animLayout.anim.frames[ats.animLayout.anim.curelem].Time == -1 &&
+				ats.animLayout.anim.curelem == int32(len(ats.animLayout.anim.frames)-1))
 	}
 	return dt >= ats.displaytime
 }

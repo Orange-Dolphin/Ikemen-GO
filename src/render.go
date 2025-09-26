@@ -15,6 +15,7 @@ type Texture interface {
 	SetRGBPixelData(data []float32)
 	IsValid() bool
 	GetWidth() int32
+	GetHeight() int32
 }
 
 type Renderer interface {

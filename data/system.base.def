@@ -191,6 +191,11 @@
 	menu.item.active.xshear = 0.0
 	menu.item.active.angle = 0.0
 
+	; Enables Mugen menu tween and allows adjusting its velocity
+	menu.tween = 0
+	; Menu tween velocity
+	menu.tween.velocity = 2
+
 	; Title text rendered in main menu
 	title.offset = 159, 19
 	title.font = -1, 0, 0, 255, 255, 255, -1
@@ -299,6 +304,13 @@
 	; changes (srcMin, srcMax, srcStep, dstMin, dstMax, dstStep)
 	menu.boxcursor.col = 255, 255, 255
 	menu.boxcursor.alpharange = 10, 40, 2, 255, 255, 0
+
+	; Enables boxcursor tween
+	menu.boxcursor.tween = 0
+	; Snap boxcursor on menu section change
+	menu.boxcursor.tween.snap = 0
+	; Boxcursor velocity
+	menu.boxcursor.tween.velocity = 3
 
 	; boxbg is an automatically generated overlay around itemnames, based on
 	; values assigned to menu.pos and menu.boxcursor.coords parameters.
@@ -613,18 +625,15 @@
 	; ticks between blinks when p2.cursor.blink = 1
 	p2.cursor.switchtime = 3
 
-	; enables the Mugen 1.1 cursor tween and allows adjusting its parameters
+	; Enables the Mugen 1.1 cursor tween and allows adjusting its velocity
 	p1.cursor.tween = 1
-	; cursor tween x and y speed
-	p1.cursor.tween.speed = 4, 4
-	; cursor speed when wrapping, defaults to a multiple of cursortween.speed if it's 0 or not specified
-	p1.cursor.tween.wrap.speed = 0, 0
-	; resets cursor animation when moving to a new cell
+	; Cursor tween x and y velocity
+	p1.cursor.tween.velocity = 3, 3
+	; Resets cursor animation when moving to a new cell
 	p1.cursor.reset = 0
 
 	p2.cursor.tween = 1
-	p2.cursor.tween.speed = 4, 4
-	p2.cursor.tween.wrap.speed = 0, 0
+	p2.cursor.tween.velocity = 4, 4
 	p2.cursor.reset = 0
 
 	; cursor parameters defaults to p1 and p2 values, if not specified
@@ -1550,6 +1559,9 @@
 
 	menu.pos = 85, 33
 
+	menu.tween = 0
+	menu.tween.velocity = 3
+
 	;menu.bg.<itemname>.anim = -1
 	;menu.bg.<itemname>.spr = 
 	;menu.bg.<itemname>.offset = 0, 0
@@ -1632,6 +1644,10 @@
 	menu.boxcursor.coords = -5, -10, 154, 3
 	menu.boxcursor.col = 255, 255, 255
 	menu.boxcursor.alpharange = 10, 40, 2, 255, 255, 0
+	menu.boxcursor.tween = 0
+	menu.boxcursor.tween.snap = 0
+	menu.boxcursor.tween.velocity = 3
+
 	menu.boxbg.visible = 1
 	menu.boxbg.col = 0, 0, 0
 	menu.boxbg.alpha = 0, 128
@@ -1810,7 +1826,7 @@
 	menu.itemname.menuvideo.resolution.back = "Back"
 	menu.itemname.menuvideo.fullscreen = "Fullscreen"
 	menu.itemname.menuvideo.keepaspect = "Keep Aspect Ratio"
-	menu.itemname.menuvideo.windowscalemode = "Bilinear Filtering"
+	menu.itemname.menuvideo.windowscalemode = "Window Scale Mode"
 	menu.itemname.menuvideo.vsync = "VSync"
 	menu.itemname.menuvideo.msaa = "MSAA"
 	menu.itemname.menuvideo.shaders = "Shaders" ;reserved submenu
@@ -1890,6 +1906,9 @@
 
 	menu.pos = 85, 33
 
+	menu.tween = 0
+	menu.tween.velocity = 3
+
 	;menu.bg.<itemname>.anim = -1
 	;menu.bg.<itemname>.spr = 
 	;menu.bg.<itemname>.offset = 0, 0
@@ -1933,7 +1952,10 @@
 	menu.boxcursor.coords = -5, -10, 154, 3
 	menu.boxcursor.col = 255, 255, 255
 	menu.boxcursor.alpharange = 10, 40, 2, 255, 255, 0
-	
+	menu.boxcursor.tween = 0
+	menu.boxcursor.tween.snap = 0
+	menu.boxcursor.tween.velocity = 3
+
 	menu.boxbg.visible = 1
 	menu.boxbg.col = 0, 0, 0
 	menu.boxbg.alpha = 0, 128
@@ -1984,6 +2006,9 @@
 	; define menus.
 
 	menu.pos = 85, 33
+
+	menu.tween = 0
+	menu.tween.velocity = 3
 
 	;menu.bg.<itemname>.anim = -1
 	;menu.bg.<itemname>.spr = 
@@ -2052,7 +2077,10 @@
 	menu.boxcursor.coords = -5, -10, 154, 3
 	menu.boxcursor.col = 255, 255, 255
 	menu.boxcursor.alpharange = 10, 40, 2, 255, 255, 0
-	
+	menu.boxcursor.tween = 0
+	menu.boxcursor.tween.snap = 0
+	menu.boxcursor.tween.velocity = 3
+
 	menu.boxbg.visible = 1
 	menu.boxbg.col = 0, 0, 0
 	menu.boxbg.alpha = 0, 128
@@ -2268,6 +2296,10 @@
 	; define menus.
 
 	menu.pos = 159, 158
+
+	menu.tween = 0
+	menu.tween.velocity = 3
+
 	;menu.bg.<itemname>.anim = -1
 	;menu.bg.<itemname>.spr = 
 	;menu.bg.<itemname>.offset = 0, 0
@@ -2311,7 +2343,10 @@
 	menu.boxcursor.coords = -40, -10, 39, 2
 	menu.boxcursor.col = 255, 255, 255
 	menu.boxcursor.alpharange = 10, 40, 2, 255, 255, 0
-	
+	menu.boxcursor.tween = 0
+	menu.boxcursor.tween.snap = 0
+	menu.boxcursor.tween.velocity = 3
+
 	menu.boxbg.visible = 0
 	menu.boxbg.col = 0, 0, 0
 	menu.boxbg.alpha = 0, 128

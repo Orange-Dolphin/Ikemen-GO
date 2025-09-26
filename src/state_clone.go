@@ -177,39 +177,72 @@ func (ghv *GetHitVar) Clone(a *arena.Arena) (result *GetHitVar) {
 	return
 }
 
-func (ai AfterImage) Clone(a *arena.Arena) (result AfterImage) {
+func (ai AfterImage) Clone(a *arena.Arena, gsp *GameStatePool) (result AfterImage) {
 	result = ai
-	result.palfx = arena.MakeSlice[PalFX](a, len(ai.palfx), len(ai.palfx))
-	for i := 0; i < len(ai.palfx); i++ {
-		result.palfx[i] = ai.palfx[i].Clone(a)
+
+	// Deep copy Animations
+	for i := range ai.imgs {
+		if ai.imgs[i].anim != nil {
+			result.imgs[i].anim = ai.imgs[i].anim.Clone(a, gsp)
+		}
 	}
+
+	// Deep copy PalFX
+	if ai.palfx != nil {
+		result.palfx = arena.MakeSlice[*PalFX](a, len(ai.palfx), len(ai.palfx))
+		for i := range ai.palfx {
+			if ai.palfx[i] != nil {
+				result.palfx[i] = ai.palfx[i].Clone(a)
+			}
+		}
+	}
+
 	return
 }
 
-func (e *Explod) Clone(a *arena.Arena, gsp *GameStatePool) (result *Explod) {
-	result = &Explod{}
+func (e *Explod) Clone(a *arena.Arena, gsp *GameStatePool) *Explod {
+	if e == nil {
+		return nil
+	}
+
+	result := &Explod{}
 	*result = *e
+
 	if e.anim != nil {
 		result.anim = e.anim.Clone(a, gsp)
 	}
-	palfx := e.palfx.Clone(a)
-	result.palfx = &palfx
-	return
+
+	if e.palfx != nil {
+		result.palfx = e.palfx.Clone(a)
+	}
+
+	return result
 }
 
-func (p Projectile) clone(a *arena.Arena, gsp *GameStatePool) (result Projectile) {
-	result = p
-	if p.ani != nil {
-		*result.ani = *p.ani.Clone(a, gsp)
-	}
-	result.aimg.palfx = arena.MakeSlice[PalFX](a, len(p.aimg.palfx), len(p.aimg.palfx))
-	for i := 0; i < len(p.aimg.palfx); i++ {
-		result.aimg.palfx[i] = p.aimg.palfx[i].Clone(a)
+func (p *Projectile) clone(a *arena.Arena, gsp *GameStatePool) *Projectile {
+	if p == nil {
+		return nil
 	}
 
-	palfx := p.palfx.Clone(a)
-	result.palfx = &palfx
-	return
+	result := &Projectile{}
+	*result = *p
+
+	if p.ani != nil {
+		result.ani = p.ani.Clone(a, gsp)
+	}
+
+	if p.aimg.palfx != nil {
+		result.aimg.palfx = arena.MakeSlice[*PalFX](a, len(p.aimg.palfx), len(p.aimg.palfx))
+		for i := range p.aimg.palfx {
+			result.aimg.palfx[i] = p.aimg.palfx[i].Clone(a)
+		}
+	}
+
+	if p.palfx != nil {
+		result.palfx = p.palfx.Clone(a)
+	}
+
+	return result
 }
 
 func (ss *StateState) Clone(a *arena.Arena) (result StateState) {
@@ -228,18 +261,22 @@ func (c *Char) Clone(a *arena.Arena, gsp *GameStatePool) (result Char) {
 	result = Char{}
 	result = *c
 
-	result.aimg = c.aimg.Clone(a)
-
-	// todo, find the curFrame index and set result.curFrame as the pointer at that index
 	if c.anim != nil {
 		result.anim = c.anim.Clone(a, gsp)
 	}
 	if c.animBackup != nil {
 		result.animBackup = c.animBackup.Clone(a, gsp)
 	}
+
+	// Since curFrame is desynced from anim's state, we must save it as well
 	if c.curFrame != nil {
 		result.curFrame = c.curFrame.Clone(a)
+	} else {
+		result.curFrame = nil
 	}
+
+	// TODO: Profiling shows this is hotter than it should be
+	result.aimg = c.aimg.Clone(a, gsp)
 
 	// Manually copy references that shallow copy poorly, as needed
 	// Pointers, slices, maps, functions, channels etc
@@ -251,6 +288,9 @@ func (c *Char) Clone(a *arena.Arena, gsp *GameStatePool) (result Char) {
 	result.targets = arena.MakeSlice[int32](a, len(c.targets), len(c.targets))
 	copy(result.targets, c.targets)
 
+	result.hitdefTargets = arena.MakeSlice[int32](a, len(c.hitdefTargets), len(c.hitdefTargets))
+	copy(result.hitdefTargets, c.hitdefTargets)
+
 	result.hitdefTargetsBuffer = arena.MakeSlice[int32](a, len(c.hitdefTargetsBuffer), len(c.hitdefTargetsBuffer))
 	copy(result.hitdefTargetsBuffer, c.hitdefTargetsBuffer)
 
@@ -259,6 +299,11 @@ func (c *Char) Clone(a *arena.Arena, gsp *GameStatePool) (result Char) {
 
 	result.p2EnemyList = arena.MakeSlice[*Char](a, len(c.p2EnemyList), len(c.p2EnemyList))
 	copy(result.p2EnemyList, c.p2EnemyList)
+
+	if c.p2EnemyBackup != nil {
+		tmp := *c.p2EnemyBackup
+		result.p2EnemyBackup = &tmp
+	}
 
 	result.clipboardText = arena.MakeSlice[string](a, len(c.clipboardText), len(c.clipboardText))
 	copy(result.clipboardText, c.clipboardText)
@@ -280,16 +325,16 @@ func (c *Char) Clone(a *arena.Arena, gsp *GameStatePool) (result Char) {
 	for k, v := range c.cnsvar {
 		result.cnsvar[k] = v
 	}
-	result.cnssysvar = *gsp.Get(c.cnssysvar).(*map[int32]int32)
-	maps.Clear(result.cnssysvar)
-	for k, v := range c.cnssysvar {
-		result.cnssysvar[k] = v
-	}
-
 	result.cnsfvar = *gsp.Get(c.cnsfvar).(*map[int32]float32)
 	maps.Clear(result.cnsfvar)
 	for k, v := range c.cnsfvar {
 		result.cnsfvar[k] = v
+	}
+
+	result.cnssysvar = *gsp.Get(c.cnssysvar).(*map[int32]int32)
+	maps.Clear(result.cnssysvar)
+	for k, v := range c.cnssysvar {
+		result.cnssysvar[k] = v
 	}
 	result.cnssysfvar = *gsp.Get(c.cnssysfvar).(*map[int32]float32)
 	maps.Clear(result.cnssysfvar)
@@ -303,6 +348,11 @@ func (c *Char) Clone(a *arena.Arena, gsp *GameStatePool) (result Char) {
 		result.mapArray[k] = v
 	}
 
+	if c.inputShift != nil {
+		result.inputShift = arena.MakeSlice[[2]int](a, len(c.inputShift), len(c.inputShift))
+		copy(result.inputShift, c.inputShift)
+	}
+
 	return
 }
 
@@ -314,9 +364,6 @@ func (cl *CharList) Clone(a *arena.Arena, gsp *GameStatePool) (result CharList) 
 	result.runOrder = arena.MakeSlice[*Char](a, len(cl.runOrder), len(cl.runOrder))
 	copy(result.runOrder, cl.runOrder)
 
-	result.drawOrder = arena.MakeSlice[*Char](a, len(cl.drawOrder), len(cl.drawOrder))
-	copy(result.drawOrder, cl.drawOrder)
-
 	result.idMap = *gsp.Get(cl.idMap).(*map[int32]*Char)
 	maps.Clear(result.idMap)
 	for k, v := range cl.idMap {
@@ -325,11 +372,16 @@ func (cl *CharList) Clone(a *arena.Arena, gsp *GameStatePool) (result CharList) 
 	return
 }
 
-func (pf PalFX) Clone(a *arena.Arena) (result PalFX) {
-	result = pf
-	result.remap = arena.MakeSlice[int](a, len(pf.remap), len(pf.remap))
-	copy(result.remap, pf.remap)
-	return
+func (pf *PalFX) Clone(a *arena.Arena) *PalFX {
+	if pf == nil {
+		return nil
+	}
+	result := *pf
+	if pf.remap != nil {
+		result.remap = arena.MakeSlice[int](a, len(pf.remap), len(pf.remap))
+		copy(result.remap, pf.remap)
+	}
+	return &result
 }
 
 func (ce *CommandStep) Clone(a *arena.Arena) (result CommandStep) {
@@ -393,185 +445,192 @@ func (cl *CommandList) Clone(a *arena.Arena) (result CommandList) {
 func (l *Lifebar) Clone(a *arena.Arena) (result Lifebar) {
 	result = *l
 
+	// Round
 	if l.ro != nil {
-		result.ro = arena.New[LifeBarRound](a)
+		result.ro = &LifeBarRound{} // Shallow copy
 		*result.ro = *l.ro
+		// Round Transition
+		// This needs a deep copy because it's a pointer inside LifebarRound and we need the timers
+		// When round transitions are expanded this can be revisited
 		if l.ro.rt != nil {
 			result.ro.rt = arena.New[LifeBarRoundTransition](a)
 			*result.ro.rt = *l.ro.rt
 		}
 	}
 
-	//UIT
-	for i := 0; i < len(l.sc); i++ {
-		if l.sc[i] != nil {
-			result.sc[i] = arena.New[LifeBarScore](a)
-			*result.sc[i] = *l.sc[i]
-		}
-	}
-	if l.ti != nil {
-		result.ti = arena.New[LifeBarTime](a)
-		*result.ti = *l.ti
-	}
+	// Combo
 	for i := 0; i < len(l.co); i++ {
 		if l.co[i] != nil {
 			result.co[i] = arena.New[LifeBarCombo](a)
 			*result.co[i] = *l.co[i]
 		}
 	}
-	//
 
-	// Not UIT adding amyway
-	for i := 0; i < len(l.wc); i++ {
-		result.wc[i] = arena.New[LifeBarWinCount](a)
-		*result.wc[i] = *l.wc[i]
-	}
-
-	if l.ma != nil {
-		result.ma = arena.New[LifeBarMatch](a)
-		*result.ma = *l.ma
-	}
-
-	for i := 0; i < len(l.ai); i++ {
-		result.ai[i] = arena.New[LifeBarAiLevel](a)
-		*result.ai[i] = *l.ai[i]
-	}
-
-	if l.tr != nil {
-		result.tr = arena.New[LifeBarTimer](a)
-		*result.tr = *l.tr
-	}
-	//
-
-	for i := range result.order {
-		result.order[i] = arena.MakeSlice[int](a, len(l.order[i]), len(l.order[i]))
-		copy(result.order[i], l.order[i])
-	}
-
-	for i := range result.hb {
-		result.hb[i] = arena.MakeSlice[*HealthBar](a, len(l.hb[i]), len(l.hb[i]))
-		for j := 0; j < len(l.hb[i]); j++ {
-			result.hb[i][j] = arena.New[HealthBar](a)
-			*result.hb[i][j] = *l.hb[i][j]
+	// We probably don't need a deep copy of these
+	/*
+		//UIT
+		for i := 0; i < len(l.sc); i++ {
+			if l.sc[i] != nil {
+				result.sc[i] = arena.New[LifeBarScore](a)
+				*result.sc[i] = *l.sc[i]
+			}
 		}
-	}
-
-	for i := range result.pb {
-		result.pb[i] = arena.MakeSlice[*PowerBar](a, len(l.pb[i]), len(l.pb[i]))
-		for j := 0; j < len(l.pb[i]); j++ {
-			result.pb[i][j] = arena.New[PowerBar](a)
-			*result.pb[i][j] = *l.pb[i][j]
+		if l.ti != nil {
+			result.ti = arena.New[LifeBarTime](a)
+			*result.ti = *l.ti
 		}
-	}
+		//
 
-	for i := range result.gb {
-		result.gb[i] = arena.MakeSlice[*GuardBar](a, len(l.gb[i]), len(l.gb[i]))
-		for j := 0; j < len(l.gb[i]); j++ {
-			result.gb[i][j] = arena.New[GuardBar](a)
-			*result.gb[i][j] = *l.gb[i][j]
+		// Not UIT adding anyway
+		for i := 0; i < len(l.wc); i++ {
+			result.wc[i] = arena.New[LifeBarWinCount](a)
+			*result.wc[i] = *l.wc[i]
 		}
-	}
 
-	for i := range result.sb {
-		result.sb[i] = arena.MakeSlice[*StunBar](a, len(l.sb[i]), len(l.sb[i]))
-		for j := 0; j < len(l.sb[i]); j++ {
-			result.sb[i][j] = arena.New[StunBar](a)
-			*result.sb[i][j] = *l.sb[i][j]
+		if l.ma != nil {
+			result.ma = arena.New[LifeBarMatch](a)
+			*result.ma = *l.ma
 		}
-	}
 
-	for i := range result.fa {
-		result.fa[i] = arena.MakeSlice[*LifeBarFace](a, len(l.fa[i]), len(l.fa[i]))
-		for j := 0; j < len(l.fa[i]); j++ {
-			result.fa[i][j] = arena.New[LifeBarFace](a)
-			*result.fa[i][j] = *l.fa[i][j]
+		for i := 0; i < len(l.ai); i++ {
+			result.ai[i] = arena.New[LifeBarAiLevel](a)
+			*result.ai[i] = *l.ai[i]
 		}
-	}
 
-	for i := range result.nm {
-		result.nm[i] = arena.MakeSlice[*LifeBarName](a, len(l.nm[i]), len(l.nm[i]))
-		for j := 0; j < len(l.nm[i]); j++ {
-			result.nm[i][j] = arena.New[LifeBarName](a)
-			*result.nm[i][j] = *l.nm[i][j]
+		if l.tr != nil {
+			result.tr = arena.New[LifeBarTimer](a)
+			*result.tr = *l.tr
+		}
+		//
+
+		// Order
+		for i := range result.order {
+			result.order[i] = arena.MakeSlice[int](a, len(l.order[i]), len(l.order[i]))
+			copy(result.order[i], l.order[i])
+		}
+
+		// HealthBar
+		for i := range result.hb {
+			result.hb[i] = arena.MakeSlice[*HealthBar](a, len(l.hb[i]), len(l.hb[i]))
+			for j := 0; j < len(l.hb[i]); j++ {
+				result.hb[i][j] = arena.New[HealthBar](a)
+				*result.hb[i][j] = *l.hb[i][j]
+			}
+		}
+
+		// PowerBar
+		for i := range result.pb {
+			result.pb[i] = arena.MakeSlice[*PowerBar](a, len(l.pb[i]), len(l.pb[i]))
+			for j := 0; j < len(l.pb[i]); j++ {
+				result.pb[i][j] = arena.New[PowerBar](a)
+				*result.pb[i][j] = *l.pb[i][j]
+			}
+		}
+
+		// GuardBar
+		for i := range result.gb {
+			result.gb[i] = arena.MakeSlice[*GuardBar](a, len(l.gb[i]), len(l.gb[i]))
+			for j := 0; j < len(l.gb[i]); j++ {
+				result.gb[i][j] = arena.New[GuardBar](a)
+				*result.gb[i][j] = *l.gb[i][j]
+			}
+		}
+
+		// StunBar
+		for i := range result.sb {
+			result.sb[i] = arena.MakeSlice[*StunBar](a, len(l.sb[i]), len(l.sb[i]))
+			for j := 0; j < len(l.sb[i]); j++ {
+				result.sb[i][j] = arena.New[StunBar](a)
+				*result.sb[i][j] = *l.sb[i][j]
+			}
+		}
+
+		// Face
+		for i := range result.fa {
+			result.fa[i] = arena.MakeSlice[*LifeBarFace](a, len(l.fa[i]), len(l.fa[i]))
+			for j := 0; j < len(l.fa[i]); j++ {
+				result.fa[i][j] = arena.New[LifeBarFace](a)
+				*result.fa[i][j] = *l.fa[i][j]
+			}
+		}
+
+		// Name
+		for i := range result.nm {
+			result.nm[i] = arena.MakeSlice[*LifeBarName](a, len(l.nm[i]), len(l.nm[i]))
+			for j := 0; j < len(l.nm[i]); j++ {
+				result.nm[i][j] = arena.New[LifeBarName](a)
+				*result.nm[i][j] = *l.nm[i][j]
+			}
+		}
+	*/
+
+	// Action
+	for i := range result.ac {
+		if l.ac[i] != nil {
+			result.ac[i] = arena.New[LifeBarAction](a)
+
+			*result.ac[i] = *l.ac[i]
+
+			if l.ac[i].messages != nil {
+				result.ac[i].messages = arena.MakeSlice[*LbMsg](a, len(l.ac[i].messages), len(l.ac[i].messages))
+				for j := 0; j < len(l.ac[i].messages); j++ {
+					result.ac[i].messages[j] = arena.New[LbMsg](a)
+					*result.ac[i].messages[j] = *l.ac[i].messages[j]
+				}
+			}
 		}
 	}
 
 	return
 }
 
-func (bg *backGround) Clone(a *arena.Arena, gsp *GameStatePool) (result *backGround) {
-	result = &backGround{}
-	*result = *bg
-	result.anim = *bg.anim.Clone(a, gsp)
-	return
-}
-
-func (bgc *bgCtrl) Clone(a *arena.Arena, gsp *GameStatePool) (result bgCtrl) {
-	result = bgCtrl{}
-	result = *bgc
-	result.bg = arena.MakeSlice[*backGround](a, len(bgc.bg), len(bgc.bg))
-	for i := 0; i < len(bgc.bg); i++ {
-		result.bg[i] = bgc.bg[i].Clone(a, gsp)
-	}
-	return
-}
-
-func (bgctn bgctNode) Clone(a *arena.Arena, gsp *GameStatePool) (result bgctNode) {
-	result = bgctNode{}
-	result = bgctn
-	result.bgc = arena.MakeSlice[*bgCtrl](a, len(bgctn.bgc), len(bgctn.bgc))
-	for i := 0; i < len(bgctn.bgc); i++ {
-		bgc := bgctn.bgc[i].Clone(a, gsp)
-		result.bgc[i] = &bgc
-	}
-	return
-}
-
-func (bgct *bgcTimeLine) Clone(a *arena.Arena, gsp *GameStatePool) (result bgcTimeLine) {
-	result = bgcTimeLine{}
-	result = *bgct
-	result.line = arena.MakeSlice[bgctNode](a, len(bgct.line), len(bgct.line))
-	for i := 0; i < len(bgct.line); i++ {
-		result.line[i] = bgct.line[i].Clone(a, gsp)
-	}
-	result.al = arena.MakeSlice[*bgCtrl](a, len(bgct.al), len(bgct.al))
-	for i := 0; i < len(bgct.al); i++ {
-		bgCtrl := bgct.al[i].Clone(a, gsp)
-		result.al[i] = &bgCtrl
-	}
-	return
-}
-
-func (s *Stage) Clone(a *arena.Arena, gsp *GameStatePool) (result *Stage) {
-	result = &Stage{}
+func (s *Stage) Clone(a *arena.Arena, gsp *GameStatePool) *Stage {
+	result := &Stage{}
 	*result = *s
 
+	// Clone attached char def
 	result.attachedchardef = arena.MakeSlice[string](a, len(s.attachedchardef), len(s.attachedchardef))
 	copy(result.attachedchardef, s.attachedchardef)
 
-	result.constants = make(map[string]float32)
+	// Clone constants
+	result.constants = make(map[string]float32, len(s.constants))
 	for k, v := range s.constants {
 		result.constants[k] = v
 	}
 
+	// Clone animation table
 	result.at = *gsp.Get(s.at).(*AnimationTable)
 	maps.Clear(result.at)
 	for k, v := range s.at {
 		result.at[k] = v.Clone(a, gsp)
 	}
 
+	// Clone backgrounds and rebuild mapping
+	bgMap := make(map[*backGround]*backGround, len(s.bg))
 	result.bg = arena.MakeSlice[*backGround](a, len(s.bg), len(s.bg))
-	for i := 0; i < len(s.bg); i++ {
-		result.bg[i] = s.bg[i].Clone(a, gsp)
+	for i, oldbg := range s.bg {
+		newbg := &backGround{}
+		*newbg = *oldbg
+		if oldbg.anim != nil {
+			animCopy := *oldbg.anim
+			newbg.anim = &animCopy
+		}
+		result.bg[i] = newbg
+		bgMap[oldbg] = newbg
 	}
 
+	// Clone bgCtrl and point them to the cloned BG's
 	result.bgc = arena.MakeSlice[bgCtrl](a, len(s.bgc), len(s.bgc))
-	for i := 0; i < len(s.bgc); i++ {
-		result.bgc[i] = s.bgc[i].Clone(a, gsp)
+	for i, oldbgc := range s.bgc {
+		newbgc := oldbgc
+		newbgc.bg = arena.MakeSlice[*backGround](a, len(oldbgc.bg), len(oldbgc.bg))
+		for j, oldbg := range oldbgc.bg {
+			newbgc.bg[j] = bgMap[oldbg]
+		}
+		result.bgc[i] = newbgc
 	}
 
-	result.bgct = s.bgct.Clone(a, gsp)
-	return
+	return result
 }
 
 // other things can be copied, only focusing on OCD right now

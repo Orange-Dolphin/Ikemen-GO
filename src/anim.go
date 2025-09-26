@@ -174,10 +174,6 @@ type Animation struct {
 	start_scale                [2]float32
 }
 
-func (a *Animation) isBlank() bool {
-	return a.scale_x == 0 || a.scale_y == 0 || a.spr == nil || a.spr.isBlank()
-}
-
 func newAnimation(sff *Sff, pal *PaletteList) *Animation {
 	return &Animation{
 		sff:         sff,
@@ -346,6 +342,19 @@ func (a *Animation) Reset() {
 	a.curelemtime, a.curtime = 0, 0
 	a.newframe, a.loopend = true, false
 	a.spr = nil
+}
+
+func (a *Animation) isBlank() bool {
+	return a.scale_x == 0 || a.scale_y == 0 || a.spr == nil || a.spr.isBlank()
+}
+
+func (a *Animation) isCommonFX() bool {
+	for _, fx := range sys.ffx {
+		if fx.fsff == a.sff {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Animation) AnimTime() int32 {

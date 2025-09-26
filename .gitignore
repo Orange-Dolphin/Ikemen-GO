@@ -42,7 +42,14 @@ external/script/wip/*
 .idea/*
 
 # Binaries
-bin/*
+build/ffmpeg-src/
+build/ffmpeg/
+build/delaylib/
+
+# macOS bundle by local make
+/I.K.E.M.E.N-Go.app/
 
 # Compilation files
-src/*.syso
+*.syso
+*.exe
+*.dll

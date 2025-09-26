@@ -104,6 +104,9 @@ menu.t_itemname = {
 			else
 				sndPlay(motif.files.snd_data, motif[section].cancel_snd[1], motif[section].cancel_snd[2])
 			end
+			if menu.currentMenu[1] ~= menu.currentMenu[2] then
+				main.f_menuSnap(section)
+			end
 			menu.currentMenu[1] = menu.currentMenu[2]
 			return false
 		end
@@ -289,6 +292,9 @@ function menu.f_createMenu(tbl, section, bgdef, txt_title, bool_main)
 			else
 				sndPlay(motif.files.snd_data, motif[section].cancel_snd[1], motif[section].cancel_snd[2])
 			end
+			if menu.currentMenu[1] ~= menu.currentMenu[2] then
+				main.f_menuSnap(section)
+			end
 			menu.currentMenu[1] = menu.currentMenu[2]
 			return
 		elseif menu.t_itemname[t[tbl.item].itemname] ~= nil then
@@ -300,6 +306,7 @@ function menu.f_createMenu(tbl, section, bgdef, txt_title, bool_main)
 			if tbl.submenu[f].loop ~= nil then
 				sndPlay(motif.files.snd_data, motif[section].cursor_done_snd[1], motif[section].cursor_done_snd[2])
 				menu.currentMenu[1] = tbl.submenu[f].loop
+				main.f_menuSnap(section)
 			elseif not menu.t_itemname[f](tbl, tbl.item, tbl.cursorPosY, tbl.moveTxt, section) then
 				return
 			end

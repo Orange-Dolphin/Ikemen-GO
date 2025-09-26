@@ -51,11 +51,12 @@ type Config struct {
 		Lua     map[string][]string `ini:"map:^(?i)Lua[0-9]*$" lua:"Lua"`
 	} `ini:"Common"`
 	Options struct {
-		Difficulty int     `ini:"Difficulty"`
-		Life       float32 `ini:"Life"`
-		Time       int32   `ini:"Time"`
-		GameSpeed  float32 `ini:"GameSpeed"`
-		Match      struct {
+		Difficulty    int     `ini:"Difficulty"`
+		Life          float32 `ini:"Life"`
+		Time          int32   `ini:"Time"`
+		GameSpeed     int     `ini:"GameSpeed"`
+		GameSpeedStep int     `ini:"GameSpeedStep"`
+		Match         struct {
 			Wins         int32 `ini:"Wins"`
 			MaxDrawGames int32 `ini:"MaxDrawGames"`
 		} `ini:"Match"`
@@ -139,16 +140,18 @@ type Config struct {
 		GamepadMappings     string   `ini:"GamepadMappings"`
 	} `ini:"Config"`
 	Debug struct {
-		AllowDebugMode    bool    `ini:"AllowDebugMode"`
-		AllowDebugKeys    bool    `ini:"AllowDebugKeys"`
-		ClipboardRows     int     `ini:"ClipboardRows"`
-		ConsoleRows       int     `ini:"ConsoleRows"`
-		ClsnDarken        bool    `ini:"ClsnDarken"`
-		Font              string  `ini:"Font"`
-		FontScale         float32 `ini:"FontScale"`
-		StartStage        string  `ini:"StartStage"`
-		ForceStageZoomout float32 `ini:"ForceStageZoomout"`
-		ForceStageZoomin  float32 `ini:"ForceStageZoomin"`
+		AllowDebugMode      bool    `ini:"AllowDebugMode"`
+		AllowDebugKeys      bool    `ini:"AllowDebugKeys"`
+		ClipboardRows       int     `ini:"ClipboardRows"`
+		ConsoleRows         int     `ini:"ConsoleRows"`
+		ClsnDarken          bool    `ini:"ClsnDarken"`
+		Font                string  `ini:"Font"`
+		FontScale           float32 `ini:"FontScale"`
+		StartStage          string  `ini:"StartStage"`
+		ForceStageZoomout   float32 `ini:"ForceStageZoomout"`
+		ForceStageZoomin    float32 `ini:"ForceStageZoomin"`
+		KeepSpritesOnReload bool    `ini:"KeepSpritesOnReload"`
+		MacOSUseCommandKey  bool    `ini:"MacOSUseCommandKey"`
 	} `ini:"Debug"`
 	Video struct {
 		RenderMode              string   `ini:"RenderMode"`
@@ -298,7 +301,8 @@ func (c *Config) initStruct() {
 
 // Normalize values
 func (c *Config) normalize() {
-	c.SetValueUpdate("Options.GameSpeed", ClampF(c.Options.GameSpeed, -9, 9))
+	c.SetValueUpdate("Options.GameSpeed", int(Clamp(int32(c.Options.GameSpeed), -9, 9)))
+	c.SetValueUpdate("Options.GameSpeedStep", int(Clamp(int32(c.Options.GameSpeedStep), 1, 60)))
 	c.SetValueUpdate("Options.Simul.Min", int(Clamp(int32(c.Options.Simul.Min), 2, int32(MaxSimul))))
 	c.SetValueUpdate("Options.Simul.Max", int(Clamp(int32(c.Options.Simul.Max), int32(c.Options.Simul.Min), int32(MaxSimul))))
 	c.SetValueUpdate("Options.Tag.Min", int(Clamp(int32(c.Options.Tag.Min), 2, int32(MaxSimul))))
