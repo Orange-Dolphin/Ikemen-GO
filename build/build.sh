@@ -404,6 +404,10 @@ function create_delay_import_libs_windows() {
 	shopt -u nullglob
 }
 
+# ---- App metadata (overridden by CI)
+APP_VERSION="${APP_VERSION:-nightly}"
+APP_BUILDTIME="${APP_BUILDTIME:-$(date +%F)}"
+
 # --- Build functions ---
 function build() {
 	maybe_build_ffmpeg
@@ -421,7 +425,9 @@ function build() {
 	fi
 
 	echo "==> Building Go binary (this may take a while)..."
-	go build -trimpath -v -o "$OUTDIR/$binName" ./src
+	go build -trimpath -v \
+	  -ldflags "-X 'main.Version=${APP_VERSION}' -X 'main.BuildTime=${APP_BUILDTIME}'" \
+	  -o "$OUTDIR/$binName" ./src
 
 	# bundle libs
 	bundle_shared_libs
@@ -432,6 +438,7 @@ function build() {
 }
 
 function buildWin() {
+	stage_windows_resources
 	maybe_build_ffmpeg
 	export PKG_CONFIG="${PKG_CONFIG:-pkg-config}"
 	export CGO_CFLAGS="$($PKG_CONFIG --cflags libavformat libavcodec libavutil libswscale libswresample libavfilter) ${CGO_CFLAGS:-}"
@@ -444,10 +451,14 @@ function buildWin() {
 	echo "==> Building Go binary (this may take a while)..."
 	if [[ "${DEBUG_BUILD:-}" -eq 1 ]]; then
 		# Console subsystem: keep a terminal for logs/panics while debugging
-		go build -trimpath -v -o "$OUTDIR/$binName" ./src
+		go build -trimpath -v \
+		  -ldflags "-X 'main.Version=${APP_VERSION}' -X 'main.BuildTime=${APP_BUILDTIME}'" \
+		  -o "$OUTDIR/$binName" ./src
 	else
 		# GUI subsystem: hides console window
-		go build -trimpath -v -ldflags "-H windowsgui" -o "$OUTDIR/$binName" ./src
+		go build -trimpath -v \
+		  -ldflags "-H windowsgui -X 'main.Version=${APP_VERSION}' -X 'main.BuildTime=${APP_BUILDTIME}'" \
+		  -o "$OUTDIR/$binName" ./src
 	fi
 
 	# bundle libs
@@ -458,6 +469,122 @@ function buildWin() {
 	[[ -d "$LIBDIR" ]] && echo "    Runtime DLLs: $LIBDIR/"
 }
 
+# Convert an arbitrary tag (e.g. "v1.2.3", "1.2", "nightly") to a valid
+# SxS version "A.B.C.D" (all numeric, 0-65535). Unknowns -> 0.0.0.0
+sanitize_sxs_version() {
+	local in="$1" s out parts i p
+	# strip leading "v" or "V"
+	s="${in#v}"; s="${s#V}"
+	# keep digits and dots only
+	if [[ ! "$s" =~ ^[0-9.]+$ ]]; then
+		echo "0.0.0.0"; return
+	fi
+	IFS='.' read -r -a parts <<<"$s"
+	# pad / clamp to 4 parts
+	for ((i=${#parts[@]}; i<4; i++)); do parts+=("0"); done
+	# coerce empty/non-numeric to 0, clamp to 0..65535
+	out=()
+	for p in "${parts[@]:0:4}"; do
+		[[ "$p" =~ ^[0-9]+$ ]] || p=0
+		(( p<0 )) && p=0
+		(( p>65535 )) && p=65535
+		out+=("$p")
+	done
+	echo "${out[0]}.${out[1]}.${out[2]}.${out[3]}"
+}
+
+# Compile Windows resources and generate a fresh RC + manifest with version/date.
+function stage_windows_resources() {
+	[[ "$GOOS" != "windows" ]] && return 0
+
+	mkdir -p src build/winres
+
+	# Prepare numeric SxS version & components for VERSIONINFO
+	local SXS_VERSION
+	SXS_VERSION="$(sanitize_sxs_version "$APP_VERSION")"
+	IFS='.' read -r VMAJ VMIN VPAT VREV <<<"$SXS_VERSION"
+	# assembly name and arch
+	local ASM_NAME="Ikemen_GO"
+	local ASM_ARCH
+	if [[ "$GOARCH" == "amd64" ]]; then ASM_ARCH="amd64"; else ASM_ARCH="x86"; fi
+
+	# Optionally generate a minimal application manifest (or none)
+	cat > build/winres/Ikemen_GO.exe.manifest <<EOF
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="${ASM_NAME}" version="${SXS_VERSION}" processorArchitecture="${ASM_ARCH}"/>
+$( if [[ "$APP_NO_COMCTL6" != "1" ]]; then cat <<'EOD'
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+EOD
+fi )
+</assembly>
+EOF
+
+COPY_START_YEAR="${COPY_START_YEAR:-2016}"
+BUILD_YEAR="${APP_BUILDTIME%%-*}"
+APP_COPYRIGHT="${APP_COPYRIGHT:-(c) ${COPY_START_YEAR}-${BUILD_YEAR} Ikemen GO team (MIT)}"
+
+	# Generate a RC
+	cat > build/winres/Ikemen_GO.rc <<EOF
+#include <windows.h>
+#include <winver.h>
+1 ICON "Ikemen_Cylia_V2.ico"
+1 RT_MANIFEST "Ikemen_GO.exe.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION ${VMAJ},${VMIN},${VPAT},${VREV}
+ PRODUCTVERSION ${VMAJ},${VMIN},${VPAT},${VREV}
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Ikemen GO\\0"
+            VALUE "FileDescription", "Ikemen GO\\0"
+            VALUE "FileVersion", "${SXS_VERSION}\\0"
+            VALUE "ProductName", "Ikemen GO\\0"
+            VALUE "ProductVersion", "${SXS_VERSION}\\0"
+            VALUE "OriginalFilename", "Ikemen_GO.exe\\0"
+            VALUE "InternalName", "Ikemen_GO\\0"
+            VALUE "BuildDate", "${APP_BUILDTIME}\\0"
+            VALUE "LegalCopyright", "${APP_COPYRIGHT}\\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
+EOF
+
+	# Compile RC -> COFF object that Go will auto-link (.syso in package dir)
+
+	local wr targetflag
+	if [[ "$GOARCH" == "amd64" ]]; then
+		wr="${WINDRES:-x86_64-w64-mingw32-windres}"
+		targetflag="--target=pe-x86-64"
+	else
+		wr="${WINDRES:-i686-w64-mingw32-windres}"
+		targetflag="--target=pe-i386"
+	fi
+	command -v "$wr" >/dev/null 2>&1 || wr="windres"
+	echo "==> Embedding Windows resources (icon + manifest) with $wr..."
+	"$wr" $targetflag \
+	  -I build/winres -I external/icons \
+	  -i build/winres/Ikemen_GO.rc \
+	  -O coff -o src/rsrc_windows.syso
+}
+
 # Copy FFmpeg shared libs next to produced binary for easy runtime
 function bundle_shared_libs() {
 	local dest_lib="$LIBDIR"
@@ -466,7 +593,13 @@ function bundle_shared_libs() {
 		# Windows
 		cp -av "$FFMPEG_PREFIX"/bin/*.dll "$dest_lib/" 2>/dev/null || true
 		# MSYS2 runtime dep
-		cp -av /mingw64/bin/libwinpthread-1.dll "$dest_lib/" 2>/dev/null || true
+		#cp -av /mingw64/bin/libwinpthread-1.dll "$dest_lib/" 2>/dev/null || true
+		for d in \
+			/mingw64/bin/libwinpthread-1.dll \
+			/mingw64/bin/libgcc_s_seh-1.dll \
+			/mingw64/bin/libstdc++-6.dll ; do
+			cp -av "$d" "$dest_lib/" 2>/dev/null || true
+		done
 	elif [[ -d "$FFMPEG_PREFIX/lib" ]]; then
 		# Linux & macOS
 		cp -av "$FFMPEG_PREFIX"/lib/lib*.so* "$dest_lib/" 2>/dev/null || true

@@ -435,6 +435,7 @@ var triggerMap = map[string]int{
 	"prevanim":           1,
 	"prevmovetype":       1,
 	"prevstatetype":      1,
+	"projclsnoverlap":    1,
 	"projvar":            1,
 	"rad":                1,
 	"randomrange":        1,
@@ -3035,6 +3036,51 @@ func (c *Compiler) expValue(out *BytecodeExp, in *string,
 			return bvNone(), err
 		}
 		out.append(OC_projcontacttime)
+	case "projclsnoverlap":
+		if err := c.checkOpeningParenthesis(in); err != nil {
+			return bvNone(), err
+		}
+		if bv1, err = c.expBoolOr(&be1, in); err != nil {
+			return bvNone(), err
+		}
+		if c.token != "," {
+			return bvNone(), Error("Missing ',' after index in ProjClsnOverlap")
+		}
+		c.token = c.tokenizer(in)
+		if bv2, err = c.expBoolOr(&be2, in); err != nil {
+			return bvNone(), err
+		}
+		if c.token != "," {
+			return bvNone(), Error("Missing ',' after Target_PlayerID in ProjClsnOverlap")
+		}
+		c.token = c.tokenizer(in)
+		c2type := c.token
+		var bv3 BytecodeValue
+		switch c2type {
+		case "clsn1":
+			bv3 = BytecodeInt(1)
+		case "clsn2":
+			bv3 = BytecodeInt(2)
+		case "size":
+			bv3 = BytecodeInt(3)
+		default:
+			return bvNone(), Error("Invalid collision box type: " + c2type)
+		}
+		c.token = c.tokenizer(in)
+		if err := c.checkClosingParenthesis(); err != nil {
+			return bvNone(), err
+		}
+		be2.appendValue(bv2)
+		be1.appendValue(bv1)
+
+		be1.append(be2...)
+		be1.appendValue(bv3)
+		if rd {
+			out.appendI32Op(OC_nordrun, int32(len(be1)))
+		}
+		out.append(be1...)
+		out.append(OC_ex2_, OC_ex2_projclsnoverlap)
+
 	case "projguardedtime":
 		if _, err := c.oneArg(out, in, rd, true); err != nil {
 			return bvNone(), err

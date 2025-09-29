@@ -11,90 +11,119 @@ import (
 // State controller definition file.
 // This file contains the parsing code for the function in ZSS and CNS, also called State Controllers.
 
-func (c *Compiler) hitBySub(is IniSection, sc *StateControllerBase) error {
+func (c *Compiler) hitBySub(is IniSection, sc *StateControllerBase, sctrlName string) error {
 	attr := int32(-1)
-	vnum := int32(-1)
 	var err error
-	// Old syntax uses valueX
-	if attr == -1 {
-		if err = c.stateParam(is, "value", false, func(data string) error {
-			vnum = 1
-			attr, err = c.attr(data, false)
-			return err
-		}); err != nil {
-			return err
-		}
-	}
-	if attr == -1 {
-		if err = c.stateParam(is, "value2", false, func(data string) error {
-			vnum = 2
-			attr, err = c.attr(data, false)
-			return err
-		}); err != nil {
-			return err
-		}
-	}
-	// New syntax uses attr and slot
+	var any, new, old bool
+
+	// New syntax with attr and slots
 	if err = c.stateParam(is, "attr", false, func(data string) error {
-		vnum = -1
+		any, new = true, true
 		attr, err = c.attr(data, false)
 		if err != nil {
 			return err
 		}
 		sc.add(hitBy_attr, sc.iToExp(attr))
+		return nil // When running a "sub" function we can't just return sc.add
+	}); err != nil {
+		return err
+	}
+	if err := c.stateParam(is, "playerno", false, func(data string) error {
+		any, new = true, true
+		c.scAdd(sc, hitBy_playerno, data, VT_Int, 1)
 		return nil
 	}); err != nil {
 		return err
 	}
-	if attr == -1 {
-		return Error("attributes not specified")
-	}
-	if err = c.paramValue(is, sc, "slot",
-		hitBy_slot, VT_Int, 1, false); err != nil {
+	if err := c.stateParam(is, "playerid", false, func(data string) error {
+		any, new = true, true
+		c.scAdd(sc, hitBy_playerid, data, VT_Int, 1)
+		return nil
+	}); err != nil {
 		return err
 	}
-	if err = c.paramValue(is, sc, "time",
-		hitBy_time, VT_Int, 1, false); err != nil {
+	if err := c.stateParam(is, "slot", false, func(data string) error {
+		new = true
+		c.scAdd(sc, hitBy_slot, data, VT_Int, 1)
+		return nil
+	}); err != nil {
 		return err
 	}
-	if err = c.paramValue(is, sc, "playerno",
-		hitBy_playerno, VT_Int, 1, false); err != nil {
+	if err := c.stateParam(is, "stack", false, func(data string) error {
+		new = true
+		c.scAdd(sc, hitBy_stack, data, VT_Bool, 1)
+		return nil
+	}); err != nil {
 		return err
 	}
-	if err = c.paramValue(is, sc, "playerid",
-		hitBy_playerid, VT_Int, 1, false); err != nil {
+
+	// Shared parameters
+	if err := c.paramValue(is, sc, "time", hitBy_time, VT_Int, 1, false); err != nil {
 		return err
 	}
-	if err = c.paramValue(is, sc, "stack",
-		hitBy_stack, VT_Bool, 1, false); err != nil {
+
+	// Old syntax with value and value2
+	// Must be placed after time
+	if err = c.stateParam(is, "value", false, func(data string) error {
+		any, old = true, true
+		attr, err = c.attr(data, false)
+		if err != nil {
+			return err
+		}
+		sc.add(hitBy_slot, sc.iToExp(0))
+		sc.add(hitBy_attr, sc.iToExp(attr))
+		return nil
+	}); err != nil {
 		return err
 	}
-	if vnum == 1 {
-		sc.add(hitBy_value, sc.iToExp(attr))
-	} else if vnum == 2 {
-		sc.add(hitBy_value2, sc.iToExp(attr))
+	if !any { // In Mugen if both values are used then value2 will be ignored
+		if err = c.stateParam(is, "value2", false, func(data string) error {
+			any, old = true, true
+			attr, err = c.attr(data, false)
+			if err != nil {
+				return err
+			}
+			sc.add(hitBy_slot, sc.iToExp(1))
+			sc.add(hitBy_attr, sc.iToExp(attr))
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
+
+	// Cannot mix old and new syntax
+	if old && new {
+		if c.zssMode {
+			return Error("Cannot mix old and new " + sctrlName + " syntaxes")
+		} else {
+			sys.appendToConsole("WARNING: " + sys.cgi[c.playerNo].nameLow + fmt.Sprintf(": Cannot mix old and new: "+sctrlName+" in state %v ", c.stateNo))
+		}
+	}
+
+	// Must have at least one parameter
+	if !any {
+		return Error("No " + sctrlName + " parameters specified")
+	}
+
 	return nil
 }
 
 func (c *Compiler) hitBy(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	ret, err := (*hitBy)(sc), c.stateSec(is, func() error {
-		if err := c.paramValue(is, sc, "redirectid",
-			hitBy_redirectid, VT_Int, 1, false); err != nil {
+		if err := c.paramValue(is, sc, "redirectid", hitBy_redirectid, VT_Int, 1, false); err != nil {
 			return err
 		}
-		return c.hitBySub(is, sc)
+		return c.hitBySub(is, sc, "HitBy")
 	})
 	return *ret, err
 }
 
 func (c *Compiler) notHitBy(is IniSection, sc *StateControllerBase, _ int8) (StateController, error) {
 	ret, err := (*notHitBy)(sc), c.stateSec(is, func() error {
-		if err := c.paramValue(is, sc, "redirectid",
-			hitBy_redirectid, VT_Int, 1, false); err != nil {
+		if err := c.paramValue(is, sc, "redirectid", hitBy_redirectid, VT_Int, 1, false); err != nil {
 			return err
 		}
-		return c.hitBySub(is, sc)
+		return c.hitBySub(is, sc, "NotHitBy")
 	})
 	return *ret, err
 }
@@ -846,6 +875,10 @@ func (c *Compiler) explodSub(is IniSection,
 		explod_scale, VT_Float, 2, false); err != nil {
 		return err
 	}
+	if err := c.paramValue(is, sc, "bindid",
+		explod_bindid, VT_Int, 1, false); err != nil {
+		return err
+	}
 	if err := c.paramValue(is, sc, "bindtime",
 		explod_bindtime, VT_Int, 1, false); err != nil {
 		return err
@@ -870,27 +903,12 @@ func (c *Compiler) explodSub(is IniSection,
 		explod_sprpriority, VT_Int, 1, false); err != nil {
 		return err
 	}
-	if err := c.paramValue(is, sc, "bindid",
-		explod_bindid, VT_Int, 1, false); err != nil {
+	if err := c.paramValue(is, sc, "ontop",
+		explod_ontop, VT_Bool, 1, false); err != nil {
 		return err
 	}
-	if err := c.stateParam(is, "ontop", false, func(data string) error {
-		if err := c.scAdd(sc, explod_ontop, data, VT_Bool, 1); err != nil {
-			return err
-		}
-		if c.block != nil {
-			sc.add(explod_strictontop, nil)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if err := c.stateParam(is, "under", false, func(data string) error {
-		if err := c.scAdd(sc, explod_under, data, VT_Bool, 1); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	if err := c.paramValue(is, sc, "under",
+		explod_under, VT_Bool, 1, false); err != nil {
 		return err
 	}
 	if err := c.paramValue(is, sc, "layerno",

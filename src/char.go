@@ -1298,24 +1298,24 @@ type Explod struct {
 	animelem            int32
 	animelemtime        int32
 	animfreeze          bool
-	//ontop                bool
-	under          bool
-	alpha          [2]int32
-	ownpal         bool
-	remappal       [2]int32
-	ignorehitpause bool
-	rot            Rotation
-	anglerot       [3]float32
-	xshear         float32
-	projection     Projection
-	fLength        float32
-	oldPos         [3]float32
-	newPos         [3]float32
-	interPos       [3]float32
-	playerId       int32
-	palfx          *PalFX
-	palfxdef       PalFXDef
-	window         [4]float32
+	ontop               bool // Legacy compatibility
+	under               bool
+	alpha               [2]int32
+	ownpal              bool
+	remappal            [2]int32
+	ignorehitpause      bool
+	rot                 Rotation
+	anglerot            [3]float32
+	xshear              float32
+	projection          Projection
+	fLength             float32
+	oldPos              [3]float32
+	newPos              [3]float32
+	interPos            [3]float32
+	playerId            int32
+	palfx               *PalFX
+	palfxdef            PalFXDef
+	window              [4]float32
 	//lockSpriteFacing     bool
 	localscl             float32
 	localcoord           float32
@@ -5977,6 +5977,14 @@ func (c *Char) commitExplod(i int) {
 		}
 	}
 
+	// Emulate legacy ontop behavior
+	// Move from the end of the slice to the beginning to invert drawing order
+	if e.ontop {
+		playerExplods := &sys.explods[c.playerNo]
+		copy((*playerExplods)[1:i+1], (*playerExplods)[0:i])
+		(*playerExplods)[0] = e
+	}
+
 	// Explod ready
 	e.anim.UpdateSprite()
 }
@@ -8711,7 +8719,21 @@ func (c *Char) projClsnCheckSingle(p *Projectile, cbox, pbox int32) bool {
 		charangle,
 	)
 }
+func (c *Char) projClsnOverlapTrigger(index, targetID, boxType int32) bool {
+	projs := c.getProjs(-1)
 
+	if index < 0 || int(index) >= len(projs) {
+		return false
+	}
+	proj := projs[index]
+
+	target := sys.playerID(targetID)
+	if target == nil {
+		return false
+	}
+
+	return target.projClsnCheck(proj, boxType, 1)
+}
 func (c *Char) clsnCheck(getter *Char, charbox, getterbox int32, reqcheck, trigger bool) bool {
 	// Safety checks
 	if c == nil || getter == nil || c.anim == nil || getter.anim == nil {
@@ -8863,24 +8885,29 @@ func (c *Char) hitByAttrTrigger(attr int32) bool {
 
 // Check vulnerability in a single HitBy slot
 func (c *Char) checkHitBySlot(hb HitBy, getterno int, getterid, ghdattr, attrsca int32) bool {
-	// Check player number and ID restrictions
-	match := true
-	if (hb.playerno >= 0 && hb.playerno != getterno) || (hb.playerid >= 0 && hb.playerid != getterid) {
-		match = false
-	}
+	// Attribute
+	// Note: State type and attack attributes must be checked individually
+	attrCheck := hb.flag >= 0
+	scaMatch := hb.flag&attrsca != 0
+	atkMatch := hb.flag&ghdattr&^int32(ST_MASK) != 0
 
-	// Check attribute flags
-	if hb.flag&attrsca == 0 || hb.flag&ghdattr&^int32(ST_MASK) == 0 {
-		match = false
-	}
+	// Player number
+	pnoCheck := hb.playerno >= 0
+	pnoMatch := hb.playerno == getterno
 
-	// Flip result if this is NotHitBy
+	// Player ID
+	pidCheck := hb.playerid >= 0
+	pidMatch := hb.playerid == getterid
+
+	// For NotHitBy the hit is allowed only if no defined parameter matches
 	if hb.not {
-		return !match
+		anyMatch := (attrCheck && (scaMatch || atkMatch)) || (pnoCheck && pnoMatch) || (pidCheck && pidMatch)
+		return !anyMatch
 	}
 
-	// Otherwise return normally
-	return match
+	// For HitBy the hit is allowed only if all defined parameters match
+	allMatch := (!attrCheck || (scaMatch && atkMatch)) && (!pnoCheck || pnoMatch) && (!pidCheck || pidMatch)
+	return allMatch
 }
 
 // checkHitByAllSlots evaluates all of the character's HitBy/NotHitBy slots
@@ -10871,7 +10898,7 @@ func (c *Char) cueDebugDraw() {
 						}
 
 						// Combine flags for HitBy and NotHitBy
-						if h.flag != 0 {
+						if h.flag >= 0 {
 							if h.not {
 								// NotHitBy removes flags
 								flags &= ^h.flag

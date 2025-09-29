@@ -4785,6 +4785,27 @@ func triggerFunctions(l *lua.LState) {
 			BytecodeInt(int32(numArg(l, 1)))).ToI()))
 		return 1
 	})
+	luaRegister(l, "projclsnoverlap", func(l *lua.LState) int {
+		idx := int32(numArg(l, 1))
+		pid := int32(numArg(l, 2))
+		cboxStr := strings.ToLower(strArg(l, 3))
+
+		var cbox int32
+		switch cboxStr {
+		case "clsn1":
+			cbox = 1
+		case "clsn2":
+			cbox = 2
+		case "size":
+			cbox = 3
+		default:
+			l.RaiseError("Invalid collision box type: " + cboxStr)
+			l.Push(lua.LBool(false))
+			return 1
+		}
+		l.Push(lua.LBool(sys.debugWC.projClsnOverlapTrigger(idx, pid, cbox)))
+		return 1
+	})
 	// projguarded (deprecated by projguardedtime)
 	luaRegister(l, "projguardedtime", func(*lua.LState) int {
 		l.Push(lua.LNumber(sys.debugWC.projGuardedTime(

@@ -2345,7 +2345,10 @@ function start.f_selectScreen()
 						member = k
 					end
 					--member selection
-					v.selectState, start.needUpdateDrawList = start.f_selectMenu(side, v.cmd, v.player, member, v.selectState)
+					v.selectState, DrawUpdateflag = start.f_selectMenu(side, v.cmd, v.player, member, v.selectState)
+					if start.needUpdateDrawList == false then
+						start.needUpdateDrawList= DrawUpdateflag
+					end
 					--draw active cursor
 					if side == 2 and motif.select_info.p2_cursor_blink == 1 then
 						local sameCell = false

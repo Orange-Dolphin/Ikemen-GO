@@ -14,6 +14,7 @@ Ikemen_GO_MacOS
 Ikemen_GO_x86.exe
 Ikemen_GO.command
 external/script/.idea/*
+*.manifest
 
 # Ikemen_GO-Elecbyte-Screenpack
 ScreenpackLicense.txt
@@ -45,6 +46,7 @@ external/script/wip/*
 build/ffmpeg-src/
 build/ffmpeg/
 build/delaylib/
+build/winres/
 
 # macOS bundle by local make
 /I.K.E.M.E.N-Go.app/

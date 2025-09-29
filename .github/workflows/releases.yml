@@ -143,8 +143,9 @@ jobs:
           GOARCH: ${{ matrix.cfg.goarch }}
           CGO_ENABLED: "1"
           GOEXPERIMENT: "arenas"
+          APP_VERSION: ${{ needs.tag.outputs.version }}
+          APP_BUILDTIME: ${{ needs.tag.outputs.buildTime }}
         run: |
-          ldflags="-X 'main.Version=${{ needs.tag.outputs.version }}' -X 'main.BuildTime=${{ needs.tag.outputs.buildTime }}'"
           go env -w GO111MODULE=on
           go mod download
           ./build/build.sh ${{ matrix.cfg.build_target }}
@@ -161,8 +162,9 @@ jobs:
           GOARCH: ${{ matrix.cfg.goarch }}
           CGO_ENABLED: "1"
           GOEXPERIMENT: "arenas"
+          APP_VERSION: ${{ needs.tag.outputs.version }}
+          APP_BUILDTIME: ${{ needs.tag.outputs.buildTime }}
         run: |
-          ldflags="-X 'main.Version=${{ needs.tag.outputs.version }}' -X 'main.BuildTime=${{ needs.tag.outputs.buildTime }}'"
           go env -w GO111MODULE=on
           go mod download
           ./build/build.sh ${{ matrix.cfg.build_target }}
@@ -272,6 +274,25 @@ jobs:
           # 6) Archive
           echo "Zipping deploy directory"
           cd deploy
+
+          # Linux desktop integration: ship .desktop + 256px icon
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            #mkdir -p icons/hicolor/256x256/apps
+            #cp ../external/icons/IkemenCylia_256.png icons/hicolor/256x256/apps/ikemen-go.png
+            cp ../external/icons/IkemenCylia_256.png ikemen-go.png
+            cat > Ikemen_GO.desktop <<'EOF'
+          [Desktop Entry]
+          Name=Ikemen GO
+          Comment=An open-source fighting game engine
+          TryExec=Ikemen_GO_Linux
+          Exec=./Ikemen_GO_Linux
+          Icon=ikemen-go.png
+          Terminal=false
+          Type=Application
+          Categories=Game;ArcadeGame;
+          EOF
+          fi
+
           if [ "${{ github.event.inputs.tag }}" = "" ]; then
             ARTIFACT_NAME=Ikemen_GO-dev-${{ matrix.cfg.runner_os }}.zip
             echo "artifact=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"

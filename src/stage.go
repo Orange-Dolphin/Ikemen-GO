@@ -99,22 +99,21 @@ const (
 	BG_Dummy
 )
 
-type BgVideoScale int32
+type BgVideoScaleMode int32
 
 const (
-	SC_None BgVideoScale = iota
-	SC_Stretch
-	SC_Fit
-	SC_FitWidth
-	SC_FitHeight
-	SC_ZoomFill
-	SC_Center
+	SM_None BgVideoScaleMode = iota
+	SM_Stretch
+	SM_Fit
+	SM_FitWidth
+	SM_FitHeight
+	SM_ZoomFill
 )
 
-type BgVideoFlag int32
+type BgVideoScaleFilter int32
 
 const (
-	SF_FastBilinear BgVideoFlag = iota
+	SF_FastBilinear BgVideoScaleFilter = iota
 	SF_Bilinear
 	SF_Bicubic
 	SF_Experimental
@@ -226,62 +225,60 @@ func readBackGround(is IniSection, link *backGround,
 				volume = int(Atoi(v))
 			}
 
-			var s BgVideoScale
-			if v, ok := is["scale"]; ok {
+			var sm BgVideoScaleMode
+			if v, ok := is["scalemode"]; ok {
 				switch strings.ToLower(strings.TrimSpace(v)) {
 				case "none":
-					s = SC_None
+					sm = SM_None
 				case "stretch":
-					s = SC_Stretch
+					sm = SM_Stretch
 				case "fit":
-					s = SC_Fit
+					sm = SM_Fit
 				case "fitwidth":
-					s = SC_FitWidth
+					sm = SM_FitWidth
 				case "fitheight":
-					s = SC_FitHeight
+					sm = SM_FitHeight
 				case "zoomfill":
-					s = SC_ZoomFill
-				case "center":
-					s = SC_Center
+					sm = SM_ZoomFill
 				default:
-					return nil, Error("Invalid BG Video scale: " + v)
+					return nil, Error("Invalid BG Video scale mode: " + v)
 				}
 			}
 
-			var f BgVideoFlag
-			if v, ok := is["filter"]; ok {
+			var sf BgVideoScaleFilter
+			if v, ok := is["scalefilter"]; ok {
 				switch strings.ToLower(strings.TrimSpace(v)) {
 				case "fastbilinear":
-					f = SF_FastBilinear
+					sf = SF_FastBilinear
 				case "bilinear":
-					f = SF_Bilinear
+					sf = SF_Bilinear
 				case "bicubic":
-					f = SF_Bicubic
+					sf = SF_Bicubic
 				case "experimental":
-					f = SF_Experimental
+					sf = SF_Experimental
 				case "neighbor":
-					f = SF_Neighbor
+					sf = SF_Neighbor
 				case "area":
-					f = SF_Area
+					sf = SF_Area
 				case "bicublin":
-					f = SF_Bicublin
+					sf = SF_Bicublin
 				case "gauss":
-					f = SF_Gauss
+					sf = SF_Gauss
 				case "sinc":
-					f = SF_Sinc
+					sf = SF_Sinc
 				case "lanczos":
-					f = SF_Lanczos
+					sf = SF_Lanczos
 				case "spline":
-					f = SF_Spline
+					sf = SF_Spline
 				default:
-					return nil, Error("Invalid BG Video filter: " + v)
+					return nil, Error("Invalid BG Video scale filter: " + v)
 				}
 			}
 
 			var loop bool
 			is.ReadBool("loop", &loop)
 
-			if err := bg.video.Open(path, volume, s, f, loop); err != nil {
+			if err := bg.video.Open(path, volume, sm, sf, loop); err != nil {
 				return nil, err
 			}
 		}
@@ -641,41 +638,41 @@ func (bg backGround) draw(pos [2]float32, drawscl, bgscl, stglscl float32,
 	if rect[0] < sys.scrrect[2] && rect[1] < sys.scrrect[3] && rect[0]+rect[2] > 0 && rect[1]+rect[3] > 0 {
 		if bg._type == BG_Video {
 			bg.video.Tick()
-			if bg.video.texture != nil {
-				texWidth := bg.video.texture.GetWidth()
-				texHeight := bg.video.texture.GetHeight()
-				rp := RenderParams{
-					tex:    bg.video.texture,
-					size:   [2]uint16{uint16(texWidth), uint16(texHeight)},
-					x:      x,
-					y:      y,
-					tile:   notiling,
-					xts:    sclx,
-					xbs:    scly,
-					ys:     1,
-					vs:     1,
-					xas:    1,
-					yas:    1,
-					rot:    Rotation{},
-					trans:  255,
-					mask:   -1,
-					window: &sys.scrrect,
-				}
-				RenderSprite(rp)
+			if bg.video.texture == nil {
+				return
 			}
-		} else {
-			// Xshear offset correction
-			xsoffset := -bg.xshear * SignF(bg.scalestart[1]) * (float32(bg.anim.spr.Offset[1]) * scly)
+			bg.anim.spr = newSprite()
+			bg.anim.spr.Tex = bg.video.texture
 
-			if bg.rot.angle != 0 {
-				xsoffset /= bg.rot.angle
+			// Convert to logical units so drawing is 1:1 relative to the game coordinate space.
+			w := float32(bg.video.texture.GetWidth()) / sys.widthScale
+			h := float32(bg.video.texture.GetHeight()) / sys.heightScale
+			bg.anim.spr.Size = [2]uint16{
+				uint16(math.Ceil(float64(w))),
+				uint16(math.Ceil(float64(h))),
 			}
-			bg.anim.Draw(&rect, x-xsoffset, y, sclx, scly,
-				bg.xscale[0]*bgscl*(scalestartX+xs)*xs3,
-				xbs*bgscl*(scalestartX+xs)*xs3,
-				ys*ys3, xras*x/(AbsF(ys*ys3)*lscl[1]*float32(bg.anim.spr.Size[1])*bg.scalestart[1])*sclx_recip*bg.scalestart[1]-bg.xshear,
-				bg.rot, float32(sys.gameWidth)/2, bg.palfx, true, 1, [2]float32{1, 1}, int32(bg.projection), bg.fLength, 0, false)
+			bg.anim.scale_x = 1
+			bg.anim.scale_y = 1
 		}
+
+		// Xshear offset correction
+		xsoffset := -bg.xshear * SignF(bg.scalestart[1]) * (float32(bg.anim.spr.Offset[1]) * scly)
+
+		if bg.rot.angle != 0 {
+			xsoffset /= bg.rot.angle
+		}
+
+		// Choose render origin: top-left for screenpack/storyboard videos, center for everything else
+		var rcx float32
+		if bg._type != BG_Video || isStage {
+			rcx = float32(sys.gameWidth) / 2
+		}
+
+		bg.anim.Draw(&rect, x-xsoffset, y, sclx, scly,
+			bg.xscale[0]*bgscl*(scalestartX+xs)*xs3,
+			xbs*bgscl*(scalestartX+xs)*xs3,
+			ys*ys3, xras*x/(AbsF(ys*ys3)*lscl[1]*float32(bg.anim.spr.Size[1])*bg.scalestart[1])*sclx_recip*bg.scalestart[1]-bg.xshear,
+			bg.rot, rcx, bg.palfx, true, 1, [2]float32{1, 1}, int32(bg.projection), bg.fLength, 0, false, bg._type == BG_Video)
 	}
 }
 
@@ -1945,6 +1942,15 @@ func (s *Stage) reset() {
 		s.model.reset()
 	}
 	// No need to reset BGCtrl at the moment. Tied to stagetime
+}
+
+// destroy stops any background video media so the stage can be safely discarded.
+func (s *Stage) destroy() {
+	for _, b := range s.bg {
+		if b != nil && b._type == BG_Video {
+			b.video.Close()
+		}
+	}
 }
 
 func (s *Stage) modifyBGCtrl(id int32, t, v [3]int32, x, y float32, src, dst [2]int32,

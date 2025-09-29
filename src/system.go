@@ -1251,6 +1251,17 @@ func (s *System) clearAllSound() {
 	s.soundChannels.StopAll()
 	s.stopAllCharSound()
 	s.soundMixer.Clear()
+	// Quiesce stage videos so no background decoding continues while mixer is empty,
+	// and mark them as detached so SetPlaying(true) can re-attach next frame.
+	if s.stage != nil {
+		for _, b := range s.stage.bg {
+			if b != nil && b._type == BG_Video {
+				b.video.SetPlaying(false)
+				b.video.SetVisible(false)
+				b.video.MixerCleared()
+			}
+		}
+	}
 }
 
 // Remove the player's explods, projectiles and (optionally) helpers as well as stopping their sounds
@@ -3957,6 +3968,10 @@ func (l *Loader) loadStage() bool {
 		if sys.stage != nil && sys.stage.def == def && sys.stage.mainstage && !sys.stage.reload {
 			tstr = fmt.Sprintf("Cached stage loaded: %v", def)
 			return true
+		}
+		// We're switching stages (or reloading): tear down background media in the old stage.
+		if sys.stage != nil && (sys.stage.def != def || !sys.stage.mainstage || sys.stage.reload) {
+			sys.stage.destroy()
 		}
 		sys.stageList = make(map[int32]*Stage)
 		sys.stageLoop = false

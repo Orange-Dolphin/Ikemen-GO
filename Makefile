@@ -19,14 +19,12 @@ srcFiles=src/resources/defaultConfig.ini \
 	src/iniutils.go \
 	src/input.go \
 	src/input_glfw.go \
-	src/input_kinc.go \
 	src/lifebar.go \
 	src/main.go \
 	src/net.go \
 	src/render.go \
 	src/render_gl.go \
 	src/render_gl_gl32.go \
-	src/render_kinc.go \
 	src/rollback.go \
 	src/script.go \
 	src/sound.go \
@@ -36,7 +34,6 @@ srcFiles=src/resources/defaultConfig.ini \
 	src/stdout_windows.go \
 	src/system.go \
 	src/system_glfw.go \
-	src/system_kinc.go \
 	src/util_desktop.go \
 	src/util_js.go \
 	src/util_raw.go \

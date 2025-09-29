@@ -946,6 +946,7 @@ const (
 	OC_ex2_envshakevar_dir
 	OC_ex2_gethitvar_fall_envshake_dir
 	OC_ex2_xshear
+	OC_ex2_projclsnoverlap
 )
 
 type StringPool struct {
@@ -3826,6 +3827,11 @@ func (be BytecodeExp) run_ex2(c *Char, i *int, oc *Char) {
 		sys.bcStack.PushF(c.ghv.fall_envshake_dir)
 	case OC_ex2_xshear:
 		sys.bcStack.PushF(c.xshear)
+	case OC_ex2_projclsnoverlap:
+		boxType := sys.bcStack.Pop().ToI()
+		targetID := sys.bcStack.Pop().ToI()
+		index := sys.bcStack.Pop().ToI()
+		sys.bcStack.PushB(c.projClsnOverlapTrigger(index, targetID, boxType))
 	default:
 		sys.errLog.Printf("%v\n", be[*i-1])
 		c.panic()
@@ -4260,14 +4266,12 @@ func (sc stateDef) Run(c *Char) {
 type hitBy StateControllerBase
 
 const (
-	hitBy_value byte = iota
-	hitBy_value2
-	hitBy_time
-	hitBy_attr
-	hitBy_slot
-	hitBy_playerno
+	hitBy_attr byte = iota
 	hitBy_playerid
+	hitBy_playerno
+	hitBy_slot
 	hitBy_stack
+	hitBy_time
 	hitBy_redirectid
 )
 
@@ -4278,9 +4282,13 @@ func (sc hitBy) runSub(c *Char, crun *Char, not bool) {
 	pno := int(-1)
 	pid := int32(-1)
 	stk := false
-	old := false
 
 	set := func(slot int, attr, time int32, pno int, pid int32, stk bool) {
+		if slot < 0 {
+			return
+		} else if slot >= len(crun.hitby) {
+			slot = 0
+		}
 		crun.hitby[slot].not = not
 		crun.hitby[slot].time = time
 		crun.hitby[slot].flag = attr
@@ -4293,19 +4301,8 @@ func (sc hitBy) runSub(c *Char, crun *Char, not bool) {
 		switch paramID {
 		case hitBy_time:
 			time = exp[0].evalI(c)
-		case hitBy_value:
-			val := exp[0].evalI(c)
-			set(0, val, time, -1, -1, false)
-			old = true
-		case hitBy_value2:
-			val := exp[0].evalI(c)
-			set(1, val, time, -1, -1, false) // This redundancy is because both values can be set simultaneously in Mugen
-			old = true
 		case hitBy_slot:
 			slot = int(Max(0, exp[0].evalI(c)))
-			if slot > 7 {
-				slot = 0
-			}
 		case hitBy_attr:
 			attr = exp[0].evalI(c)
 		case hitBy_playerno:
@@ -4318,9 +4315,7 @@ func (sc hitBy) runSub(c *Char, crun *Char, not bool) {
 		return true
 	})
 
-	if !old && slot >= 0 && slot <= 7 {
-		set(slot, attr, time, pno, pid, stk)
-	}
+	set(slot, attr, time, pno, pid, stk)
 }
 
 func (sc hitBy) Run(c *Char, _ []int32) bool {
@@ -5448,7 +5443,6 @@ const (
 	explod_layerno
 	explod_under
 	explod_ontop
-	explod_strictontop
 	explod_shadow
 	explod_removeongethit
 	explod_removeonchangestate
@@ -5624,13 +5618,12 @@ func (sc explod) Run(c *Char, _ []int32) bool {
 			}
 		case explod_ontop:
 			if exp[0].evalB(c) {
+				e.ontop = true
 				e.layerno = 1
-			} else {
-				e.layerno = 0
-			}
-		case explod_strictontop:
-			if e.layerno > 0 {
 				e.sprpriority = 0
+			} else {
+				e.ontop = false
+				e.layerno = 0
 			}
 		case explod_under:
 			e.under = exp[0].evalB(c)
@@ -6102,19 +6095,16 @@ func (sc modifyExplod) Run(c *Char, _ []int32) bool {
 					}
 				})
 			case explod_ontop:
-				if exp[0].evalB(c) {
-					eachExpl(func(e *Explod) {
-						e.layerno = 1
-					})
-				} else {
-					eachExpl(func(e *Explod) {
-						e.layerno = 0
-					})
-				}
-			case explod_strictontop:
+				// At this point we'd better not change the explod's position in the slice like when the explod is created
+				v := exp[0].evalB(c)
 				eachExpl(func(e *Explod) {
-					if e.layerno > 0 {
+					if v {
+						e.ontop = true
+						e.layerno = 1
 						e.sprpriority = 0
+					} else if e.ontop {
+						e.ontop = false
+						e.layerno = 0
 					}
 				})
 			case explod_under:
@@ -9425,6 +9415,9 @@ func (sc trans) Run(c *Char, _ []int32) bool {
 	//crun.alpha[1] = 255
 
 	StateControllerBase(sc).run(c, func(paramID byte, exp []BytecodeExp) bool {
+		if len(exp) == 0 {
+			return false
+		}
 		switch paramID {
 		case trans_trans:
 			crun.alpha[0] = exp[0].evalI(c)
@@ -9440,9 +9433,9 @@ func (sc trans) Run(c *Char, _ []int32) bool {
 				}
 			}
 		}
+		crun.setCSF(CSF_trans)
 		return true
 	})
-	crun.setCSF(CSF_trans)
 	return false
 }
 

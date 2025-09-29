@@ -639,39 +639,45 @@ func (a *Animation) Action() {
 	}
 }
 
-func (a *Animation) alpha() int32 {
-	var sa, da byte
-	if a.srcAlpha >= 0 {
-		sa = byte(a.srcAlpha)
-		if a.dstAlpha < 0 {
-			da = byte(^a.dstAlpha >> 1)
-			if sa == 1 && da == 255 {
-				sa = 0
-			}
-		} else {
-			da = byte(a.dstAlpha)
+func alphaFromBlend(sa, da int16, brightness int32) int32 {
+	var s, d byte
+	s = byte(sa)
+	if da < 0 {
+		d = byte(^da >> 1)
+		if s == 1 && d == 255 {
+			s = 0
 		}
 	} else {
-		sa = byte(a.interpolate_blend_srcalpha)
-		da = byte(a.interpolate_blend_dstalpha)
+		d = byte(da)
 	}
-	if sa == 1 && da == 255 {
+	if s == 1 && d == 255 {
 		return -2
 	}
-	sa = byte(int32(sa) * sys.brightness >> 8)
+	s = byte(int32(s) * brightness >> 8)
 	// Mugen sprites disappear a bit earlier than this
 	// However that makes subtle interpolated blending noticeably jump
-	if sa < 1 && da == 255 {
+	if s < 1 && d == 255 {
 		return 0
 	}
-	if sa == 255 && da == 255 {
+	if s == 255 && d == 255 {
 		return -1
 	}
-	trans := int32(sa)
-	if int(sa)+int(da) < 254 || 256 < int(sa)+int(da) {
-		trans |= int32(da)<<10 | 1<<9
+	out := int32(s)
+	if int(s)+int(d) < 254 || 256 < int(s)+int(d) {
+		out |= int32(d)<<10 | 1<<9
 	}
-	return trans
+	return out
+}
+
+func (a *Animation) alpha(isVideo bool) int32 {
+	if a.srcAlpha >= 0 || isVideo {
+		return alphaFromBlend(a.srcAlpha, a.dstAlpha, sys.brightness)
+	}
+	return alphaFromBlend(
+		int16(byte(a.interpolate_blend_srcalpha)),
+		int16(byte(a.interpolate_blend_dstalpha)),
+		sys.brightness,
+	)
 }
 
 func (a *Animation) pal(pfx *PalFX, neg bool) (p []uint32, plt Texture) {
@@ -698,7 +704,10 @@ func (a *Animation) pal(pfx *PalFX, neg bool) (p []uint32, plt Texture) {
 }
 
 func (a *Animation) drawSub1(angle, facing float32) (h, v, agl float32) {
-	h, v = float32(a.frames[a.drawidx].Hscale), float32(a.frames[a.drawidx].Vscale)
+	h, v = 1, 1
+	if len(a.frames) > 0 {
+		h, v = float32(a.frames[a.drawidx].Hscale), float32(a.frames[a.drawidx].Vscale)
+	}
 	agl = angle
 	h *= a.scale_x
 	v *= a.scale_y
@@ -708,7 +717,8 @@ func (a *Animation) drawSub1(angle, facing float32) (h, v, agl float32) {
 
 func (a *Animation) Draw(window *[4]int32, x, y, xcs, ycs, xs, xbs, ys,
 	rxadd float32, rot Rotation, rcx float32, pfx *PalFX, old bool, facing float32,
-	airOffsetFix [2]float32, projectionMode int32, fLength float32, color uint32, isReflection bool) {
+	airOffsetFix [2]float32, projectionMode int32, fLength float32, color uint32,
+	isReflection, isVideo bool) {
 
 	// Skip blank animations
 	if a == nil || a.isBlank() {
@@ -725,8 +735,11 @@ func (a *Animation) Draw(window *[4]int32, x, y, xcs, ycs, xs, xbs, ys,
 	ys *= ycs * v
 
 	// Compute X and Y AIR animation offsets
-	xoff := xs * airOffsetFix[0] * (float32(a.frames[a.drawidx].Xoffset) + a.interpolate_offset_x) * a.start_scale[0] * (1 / a.scale_x)
-	yoff := ys * airOffsetFix[1] * (float32(a.frames[a.drawidx].Yoffset) + a.interpolate_offset_y) * a.start_scale[1] * (1 / a.scale_y)
+	var xoff, yoff float32
+	if !isVideo {
+		xoff = xs * airOffsetFix[0] * (float32(a.frames[a.drawidx].Xoffset) + a.interpolate_offset_x) * a.start_scale[0] * (1 / a.scale_x)
+		yoff = ys * airOffsetFix[1] * (float32(a.frames[a.drawidx].Yoffset) + a.interpolate_offset_y) * a.start_scale[1] * (1 / a.scale_y)
+	}
 
 	x = xcs*x + xoff
 	y = ycs*y + yoff
@@ -774,10 +787,15 @@ func (a *Animation) Draw(window *[4]int32, x, y, xcs, ycs, xs, xbs, ys,
 		x, y = AbsF(xs)*float32(a.spr.Offset[0]), AbsF(ys)*float32(a.spr.Offset[1])
 		fLength *= ycs
 	}
-	trans := a.alpha()
-	pal, paltex := a.pal(pfx, trans == -2)
-	if a.spr.coldepth <= 8 && paltex == nil {
-		paltex = a.spr.CachePalette(pal)
+	trans := a.alpha(isVideo)
+
+	var paltex Texture
+	if !isVideo {
+		var pal []uint32
+		pal, paltex = a.pal(pfx, trans == -2)
+		if a.spr.coldepth <= 8 && paltex == nil {
+			paltex = a.spr.CachePalette(pal)
+		}
 	}
 
 	rp := RenderParams{
@@ -812,7 +830,7 @@ func (a *Animation) Draw(window *[4]int32, x, y, xcs, ycs, xs, xbs, ys,
 }
 
 func (a *Animation) ShadowDraw(window *[4]int32, x, y, xscl, yscl, vscl, rxadd float32, rot Rotation,
-	pfx *PalFX, old bool, color uint32, alpha int32, facing float32, airOffsetFix [2]float32, projectionMode int32, fLength float32) {
+	pfx *PalFX, old bool, color uint32, alpha int32, facing float32, airOffsetFix [2]float32, projectionMode int32, fLength float32, isVideo bool) {
 
 	// Skip blank shadows
 	if a == nil || a.isBlank() {
@@ -885,7 +903,7 @@ func (a *Animation) ShadowDraw(window *[4]int32, x, y, xscl, yscl, vscl, rxadd f
 
 	if a.spr.coldepth <= 8 && (color != 0 || alpha > 0) {
 		if a.sff.header.Ver0 == 2 && a.sff.header.Ver2 == 1 {
-			trans := a.alpha()
+			trans := a.alpha(false)
 			pal, _ := a.pal(pfx, trans == -2)
 			if a.spr.PalTex == nil {
 				a.spr.PalTex = a.spr.CachePalette(pal)
@@ -1079,7 +1097,7 @@ func (dl DrawList) draw(cameraX, cameraY, cameraScl float32) {
 
 		s.anim.Draw(drawwindow, pos[0]-xsoffset, pos[1], cs, cs, s.scl[0], s.scl[0],
 			s.scl[1], xshear, s.rot, float32(sys.gameWidth)/2, s.fx, s.oldVer, s.facing,
-			s.airOffsetFix, s.projection, s.fLength, 0, false)
+			s.airOffsetFix, s.projection, s.fLength, 0, false, false)
 
 		sys.brightness = ob
 	}
@@ -1296,7 +1314,7 @@ func (sl ShadowList) draw(x, y, scl float32) {
 			sys.cam.GroundLevel()+(sys.cam.Offset[1]-shake[1])-y-(s.pos[1]*yscale-offsetY)*scl,
 			scl*s.scl[0], scl*-s.scl[1],
 			yscale, xshear, rot,
-			s.fx, s.oldVer, uint32(color), intensity, s.facing, s.airOffsetFix, projection, fLength)
+			s.fx, s.oldVer, uint32(color), intensity, s.facing, s.airOffsetFix, projection, fLength, false)
 	}
 }
 
@@ -1497,7 +1515,7 @@ func (rl ReflectionList) draw(x, y, scl float32) {
 			(sys.cam.GroundLevel()+sys.cam.Offset[1]-shake[1])/scl-y/scl-(s.pos[1]*yscale-offsetY),
 			scl, scl, s.scl[0], s.scl[0],
 			-s.scl[1]*yscale, xshear, rot, float32(sys.gameWidth)/2,
-			s.fx, s.oldVer, s.facing, s.airOffsetFix, projection, fLength, color, true)
+			s.fx, s.oldVer, s.facing, s.airOffsetFix, projection, fLength, color, true, false)
 	}
 }
 
@@ -1621,7 +1639,7 @@ func (a *Anim) Draw() {
 	if !sys.frameSkip {
 		a.anim.Draw(&a.window, a.x+float32(sys.gameWidth-320)/2,
 			a.y+float32(sys.gameHeight-240), 1, 1, a.xscl, a.xscl, a.yscl,
-			0, Rotation{}, 0, a.palfx, false, 1, [2]float32{1, 1}, 0, 0, 0, false)
+			0, Rotation{}, 0, a.palfx, false, 1, [2]float32{1, 1}, 0, 0, 0, false, false)
 	}
 }
 

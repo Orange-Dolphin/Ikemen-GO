@@ -12,7 +12,7 @@ require (
 	github.com/go-gl/mathgl v1.0.0
 	github.com/gopxl/beep/v2 v2.1.1-0.20240921133731-defe79638e99
 	github.com/ikemen-engine/glfont v0.0.0-20241213091943-20149a0b660a
-	github.com/ikemen-engine/reisen v0.1.10-0.20250924215436-56a3b8069f3d
+	github.com/ikemen-engine/reisen v0.1.10-0.20250928163542-0bb3c3392852
 	github.com/lukegb/dds v0.0.0-20190402175749-8b7170e64003
 	github.com/qmuntal/gltf v0.24.2
 	github.com/sqweek/dialog v0.0.0-20220809060634-e981b270ebbf
